@@ -4,11 +4,8 @@
   "version": "0.3.3",
   "license": "Apache-2.0",
   "scripts": {
-    "dev": "tauri dev",
-    "build": "tauri build",
-    "check": "tauri info"
-  },
-  "devDependencies": {
-    "@tauri-apps/cli": "^2.9.5"
+    "dev": "cargo tauri dev",
+    "build": "cargo tauri build",
+    "check": "cargo tauri info"
   }
 }
