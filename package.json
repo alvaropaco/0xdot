@@ -5,15 +5,15 @@
   "version": "0.1.0",
   "license": "Apache-2.0",
   "packageManager": "pnpm@9.15.0",
-  "engines": {
-    "node": "^22.22.2 || ^24.0.0 || >=26.0.0"
-  },
+  "engines": { "node": "^22.22.2 || ^24.0.0 || >=26.0.0" },
   "scripts": {
     "dev": "cross-env COREPACK_ENABLE_DOWNLOAD_PROMPT=0 turbo dev --env-mode=loose --filter=@rakazo/api --filter=@rakazo/worker --filter=@rakazo/web --filter=@rakazo/sandbox-supervisor",
     "build": "turbo build",
     "check": "turbo check",
     "lint": "biome check .",
     "format": "biome check --write .",
+    "rust:check": "cargo check --manifest-path crates/Cargo.toml",
+    "rust:test": "cargo test --manifest-path crates/Cargo.toml",
     "db:generate": "pnpm --filter @rakazo/db generate",
     "db:migrate": "pnpm --filter @rakazo/api db:migrate",
     "sandbox:build": "docker build -t rakazo/computer:local infra/sandboxes/computer",
@@ -47,24 +47,8 @@
     "vitest": "4.1.12"
   },
   "pnpm": {
-    "supportedArchitectures": {
-      "os": [
-        "current"
-      ],
-      "cpu": [
-        "current",
-        "x64",
-        "arm64"
-      ]
-    },
-    "overrides": {
-      "react": "19.2.3",
-      "react-dom": "19.2.3",
-      "proxy-addr@<2.0.8": "2.0.8",
-      "e2b>undici8": "npm:undici@8.10.2"
-    },
-    "patchedDependencies": {
-      "app-builder-lib@26.15.3": "patches/app-builder-lib@26.15.3.patch"
-    }
+    "supportedArchitectures": { "os": ["current"], "cpu": ["current", "x64", "arm64"] },
+    "overrides": { "react": "19.2.3", "react-dom": "19.2.3", "proxy-addr@<2.0.8": "2.0.8", "e2b>undici8": "npm:undici@8.10.2" },
+    "patchedDependencies": { "app-builder-lib@26.15.3": "patches/app-builder-lib@26.15.3.patch" }
   }
 }
