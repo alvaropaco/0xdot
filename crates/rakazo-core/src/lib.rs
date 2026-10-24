@@ -12,3 +12,6 @@ pub mod task;
 pub use agent::{Agent, AgentId, AgentStatus};
 pub use event::{Event, EventBus};
 pub use task::{Task, TaskId, TaskStatus};
+
+#[cfg(test)]
+mod tests;
