@@ -13,10 +13,12 @@ import { markAfterPaint, markOnce } from "./lib/performance";
 import { installPreloadRecovery } from "./lib/preload-recovery";
 import { applyUiAppearance, watchSystemAppearance } from "./lib/ui-appearance";
 import { resolveUiLocale } from "./lib/ui-locale";
+import { installTauriDesktopBridge } from "./lib/tauri-desktop";
 import { registerServiceWorker } from "./pwa/register";
 import "./styles.css";
 
 markOnce("rk:renderer:module-evaluated");
+installTauriDesktopBridge();
 installPreloadRecovery();
 clientUpdates().install();
 registerServiceWorker();
