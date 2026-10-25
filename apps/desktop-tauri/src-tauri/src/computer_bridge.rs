@@ -3,10 +3,17 @@ use std::sync::Arc;
 
 #[cfg(target_os = "macos")]
 pub fn execute(call: ToolCall) -> Result<serde_json::Value, String> {
+    let permission = rakazo_host::macos_permission_preflight();
+    let permissions = ComputerPermissions {
+        screen: permission.screen_recording,
+        mouse: permission.accessibility,
+        keyboard: permission.accessibility,
+        window: permission.accessibility,
+    };
     let backend = rakazo_host::native_backend();
     let runtime = ComputerToolRuntime::new(Arc::new(rakazo_core::ComputerRuntime::new(
         backend,
-        ComputerPermissions::all(),
+        permissions,
     )));
     runtime
         .execute(&call)
