@@ -1,0 +1,11 @@
+{
+  "name": "@rakazo/desktop-tauri",
+  "private": true,
+  "version": "0.3.3",
+  "license": "Apache-2.0",
+  "scripts": {
+    "dev": "cargo tauri dev",
+    "build": "cargo tauri build",
+    "check": "cargo tauri info"
+  }
+}

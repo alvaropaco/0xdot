@@ -10,7 +10,9 @@
   },
   "scripts": {
     "dev": "cross-env COREPACK_ENABLE_DOWNLOAD_PROMPT=0 turbo dev --env-mode=loose --filter=@rakazo/api --filter=@rakazo/worker --filter=@rakazo/web --filter=@rakazo/sandbox-supervisor",
+    "dev:tauri": "pnpm --filter @rakazo/desktop-tauri dev",
     "build": "turbo build",
+    "build:tauri": "pnpm --filter @rakazo/desktop-tauri build",
     "check": "turbo check",
     "lint": "biome check .",
     "format": "biome check --write .",
