@@ -5,6 +5,7 @@
 //! adapter crates so the same core can run in Tauri, server and CLI environments.
 
 pub mod agent;
+pub mod computer;
 pub mod event;
 pub mod executor;
 pub mod memory;
@@ -15,6 +16,7 @@ pub mod tool;
 pub mod tool_runtime;
 
 pub use agent::{Agent, AgentId, AgentStatus};
+pub use computer::{CommandPolicy, ComputerRuntimeError, ProcessRuntime};
 pub use event::{Event, EventBus};
 pub use executor::{AgentExecutor, ApprovalDecision, ApprovalGate, ExecutionInput, ExecutionOutput, ExecutorError, ToolExecutor};
 pub use memory::{MemoryError, MemoryId, MemoryMatch, MemoryQuery, MemoryRecord, MemoryStore};
