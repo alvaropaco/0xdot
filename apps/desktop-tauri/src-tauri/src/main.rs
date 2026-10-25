@@ -20,6 +20,13 @@ struct UpdateState {
     checked_at: Option<String>,
 }
 
+#[derive(Debug, Serialize, Clone)]
+struct ComputerPermissionState {
+    #[serde(rename = "screenRecording")]
+    screen_recording: bool,
+    accessibility: bool,
+}
+
 #[tauri::command]
 async fn window_close(window: Window) -> Result<(), String> {
     window.close().map_err(|error| error.to_string())
@@ -123,13 +130,29 @@ async fn update_install(app: AppHandle) -> Result<UpdateState, String> {
 }
 
 #[tauri::command]
-async fn computer_request_access() -> Result<bool, String> {
-    // The native bridge is available on macOS, but OS privacy permissions are
-    // still enforced by the backend. Other platforms remain fail-closed.
+async fn computer_permission_state() -> Result<ComputerPermissionState, String> {
     #[cfg(target_os = "macos")]
-    { return Ok(true); }
+    {
+        let state = rakazo_host::macos_permission_preflight();
+        return Ok(ComputerPermissionState {
+            screen_recording: state.screen_recording,
+            accessibility: state.accessibility,
+        });
+    }
+
     #[cfg(not(target_os = "macos"))]
-    { Ok(false) }
+    {
+        Ok(ComputerPermissionState {
+            screen_recording: false,
+            accessibility: false,
+        })
+    }
+}
+
+#[tauri::command]
+async fn computer_request_access() -> Result<bool, String> {
+    let state = computer_permission_state().await?;
+    Ok(state.screen_recording && state.accessibility)
 }
 
 #[tauri::command]
@@ -163,6 +186,7 @@ fn main() {
             update_check,
             update_download,
             update_install,
+            computer_permission_state,
             computer_request_access,
             computer_execute,
             computer_revoke_access,
