@@ -6,6 +6,7 @@
 
 pub mod agent;
 pub mod computer;
+pub mod computer_automation;
 pub mod event;
 pub mod executor;
 pub mod memory;
@@ -17,6 +18,7 @@ pub mod tool_runtime;
 
 pub use agent::{Agent, AgentId, AgentStatus};
 pub use computer::{register_computer_definitions, register_computer_tools, CommandPolicy, ComputerRuntimeError, ProcessHandler, ProcessRuntime};
+pub use computer_automation::{ComputerAutomationError, ComputerBackend, ComputerCapability, ComputerPermissions, ComputerRuntime, KeyboardAction, MouseAction, MouseButton, ScreenCapture, WindowInfo};
 pub use event::{Event, EventBus};
 pub use executor::{AgentExecutor, ApprovalDecision, ApprovalGate, ExecutionInput, ExecutionOutput, ExecutorError, ToolExecutor};
 pub use memory::{MemoryError, MemoryId, MemoryMatch, MemoryQuery, MemoryRecord, MemoryStore};
