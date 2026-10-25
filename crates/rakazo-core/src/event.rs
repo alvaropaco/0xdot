@@ -2,12 +2,15 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
 use uuid::Uuid;
 
+use crate::agent::AgentStatus;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
 pub enum Event {
     AgentCreated { agent_id: Uuid },
     AgentStarted { agent_id: Uuid },
     AgentPaused { agent_id: Uuid },
+    AgentStatusChanged { agent_id: Uuid, status: AgentStatus },
     TaskCreated { task_id: Uuid, agent_id: Uuid },
     TaskUpdated { task_id: Uuid },
     ApprovalRequested { task_id: Uuid },
