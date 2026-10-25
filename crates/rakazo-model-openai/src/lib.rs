@@ -1,6 +1,6 @@
 use rakazo_core::{MessageRole, ModelError, ModelMessage, ModelProvider, ModelRequest, ModelResponse, ModelUsage, ToolCall, ToolDefinition};
 use reqwest::blocking::Client;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::{json, Value};
 use thiserror::Error;
 
@@ -8,8 +8,6 @@ use thiserror::Error;
 pub enum OpenAiProviderError {
     #[error("HTTP request failed: {0}")]
     Http(#[from] reqwest::Error),
-    #[error("provider returned HTTP {status}: {body}")]
-    HttpStatus { status: u16, body: String },
     #[error("invalid provider response: {0}")]
     Response(String),
 }
@@ -55,7 +53,6 @@ impl ModelProvider for OpenAiCompatibleProvider {
             .json(&self.request_json(request))
             .send()
             .map_err(|error| ModelError::Provider(error.to_string()))?;
-
         let status = response.status();
         let body = response.text().map_err(|error| ModelError::Provider(error.to_string()))?;
         if !status.is_success() {
@@ -65,14 +62,12 @@ impl ModelProvider for OpenAiCompatibleProvider {
         let parsed: ChatCompletionResponse = serde_json::from_str(&body)
             .map_err(|error| ModelError::Provider(format!("invalid response JSON: {error}")))?;
         let choice = parsed.choices.first().ok_or_else(|| ModelError::Provider("provider returned no choices".into()))?;
-        let message = &choice.message;
-        let tool_calls = message.tool_calls.iter().map(|call| ToolCall {
+        let tool_calls = choice.message.tool_calls.iter().map(|call| ToolCall {
             name: call.function.name.clone(),
             arguments: serde_json::from_str(&call.function.arguments).unwrap_or_else(|_| json!({"raw": call.function.arguments})),
         }).collect();
-
         Ok(ModelResponse {
-            content: message.content.clone().unwrap_or_default(),
+            content: choice.message.content.clone().unwrap_or_default(),
             tool_calls,
             finish_reason: choice.finish_reason.clone(),
             usage: parsed.usage.map(|usage| ModelUsage { input_tokens: usage.prompt_tokens, output_tokens: usage.completion_tokens }),
@@ -110,9 +105,6 @@ struct ResponseToolCall { function: FunctionCall }
 struct FunctionCall { name: String, arguments: String }
 #[derive(Debug, Deserialize)]
 struct Usage { prompt_tokens: u64, completion_tokens: u64 }
-
-#[derive(Debug, Serialize)]
-struct _ProviderMarker;
 
 #[cfg(test)]
 mod tests {
