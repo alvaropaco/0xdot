@@ -12,6 +12,7 @@ pub mod model;
 pub mod runtime;
 pub mod task;
 pub mod tool;
+pub mod tool_runtime;
 
 pub use agent::{Agent, AgentId, AgentStatus};
 pub use event::{Event, EventBus};
@@ -21,6 +22,7 @@ pub use model::{MessageRole, ModelError, ModelMessage, ModelProvider, ModelReque
 pub use runtime::{AgentRuntime, RuntimeError, RuntimeSnapshot};
 pub use task::{Task, TaskId, TaskStatus};
 pub use tool::{ToolCall, ToolDefinition, ToolRegistry, ToolRegistryError, ToolResult, ToolRisk};
+pub use tool_runtime::{register_workspace_tools, ListDirHandler, ReadFileHandler, ToolHandler, ToolRuntime, ToolRuntimeError, WorkspaceFs, WriteFileHandler};
 
 #[cfg(test)]
 mod tests;
