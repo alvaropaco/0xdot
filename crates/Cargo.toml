@@ -3,6 +3,7 @@ resolver = "2"
 members = [
   "rakazo-core",
   "rakazo-host",
+  "rakazo-model-openai",
 ]
 
 [workspace.package]
@@ -17,3 +18,4 @@ thiserror = "2"
 uuid = { version = "1", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde", "clock"] }
 tokio = { version = "1", features = ["sync", "rt", "macros", "time"] }
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
