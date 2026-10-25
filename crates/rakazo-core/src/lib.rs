@@ -6,6 +6,7 @@
 
 pub mod agent;
 pub mod event;
+pub mod executor;
 pub mod memory;
 pub mod model;
 pub mod runtime;
@@ -14,6 +15,7 @@ pub mod tool;
 
 pub use agent::{Agent, AgentId, AgentStatus};
 pub use event::{Event, EventBus};
+pub use executor::{AgentExecutor, ApprovalDecision, ApprovalGate, ExecutionInput, ExecutionOutput, ExecutorError, ToolExecutor};
 pub use memory::{MemoryError, MemoryId, MemoryMatch, MemoryQuery, MemoryRecord, MemoryStore};
 pub use model::{MessageRole, ModelError, ModelMessage, ModelProvider, ModelRequest, ModelResponse, ModelUsage};
 pub use runtime::{AgentRuntime, RuntimeError, RuntimeSnapshot};
