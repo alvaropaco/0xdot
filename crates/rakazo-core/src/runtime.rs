@@ -16,8 +16,6 @@ pub enum RuntimeError {
     AgentNotFound(AgentId),
     #[error("task not found: {0:?}")]
     TaskNotFound(TaskId),
-    #[error("task belongs to another agent")]
-    TaskAgentMismatch,
     #[error("runtime state lock poisoned")]
     StatePoisoned,
 }
@@ -74,26 +72,23 @@ impl AgentRuntime {
             .get_mut(&id)
             .ok_or(RuntimeError::AgentNotFound(id))?;
         agent.status = status;
-        let event = match agent.status {
+        let status = agent.status;
+        drop(state);
+        let _ = self.events.publish(match status {
             AgentStatus::Running => Event::AgentStarted { agent_id: id },
             AgentStatus::Paused => Event::AgentPaused { agent_id: id },
-            _ => Event::TaskUpdated { task_id: uuid::Uuid::nil() },
-        };
-        drop(state);
-        let _ = self.events.publish(event);
+            _ => Event::AgentStatusChanged { agent_id: id, status },
+        });
         Ok(())
     }
 
     pub fn enqueue_task(&self, task: Task) -> Result<TaskId, RuntimeError> {
         let id = task.id;
         let agent_id = task.agent_id;
-        let state = self.state.lock().map_err(|_| RuntimeError::StatePoisoned)?;
+        let mut state = self.state.lock().map_err(|_| RuntimeError::StatePoisoned)?;
         if !state.agents.contains_key(&agent_id) {
             return Err(RuntimeError::AgentNotFound(agent_id));
         }
-        drop(state);
-
-        let mut state = self.state.lock().map_err(|_| RuntimeError::StatePoisoned)?;
         state.tasks.insert(id, task);
         drop(state);
         let _ = self.events.publish(Event::TaskCreated { task_id: id, agent_id });
@@ -137,11 +132,8 @@ mod tests {
     #[test]
     fn registers_agent_and_enqueues_task() {
         let runtime = AgentRuntime::new();
-        let agent = Agent::new("Test agent");
-        let agent_id = runtime.register_agent(agent).unwrap();
-        let task_id = runtime
-            .enqueue_task(Task::new(agent_id, "run test"))
-            .unwrap();
+        let agent_id = runtime.register_agent(Agent::new("Test agent")).unwrap();
+        let task_id = runtime.enqueue_task(Task::new(agent_id, "run test")).unwrap();
         let snapshot = runtime.snapshot().unwrap();
         assert_eq!(snapshot.agents.len(), 1);
         assert_eq!(snapshot.tasks[0].id, task_id);
@@ -161,9 +153,7 @@ mod tests {
         let runtime = AgentRuntime::new();
         let mut events = runtime.events().subscribe();
         let agent_id = runtime.register_agent(Agent::new("Event agent")).unwrap();
-        let task_id = runtime
-            .enqueue_task(Task::new(agent_id, "observe"))
-            .unwrap();
+        let task_id = runtime.enqueue_task(Task::new(agent_id, "observe")).unwrap();
         runtime.set_task_status(task_id, TaskStatus::Completed).unwrap();
 
         assert!(matches!(events.try_recv().unwrap(), Event::AgentCreated { .. }));
