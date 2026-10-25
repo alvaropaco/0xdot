@@ -6,12 +6,16 @@
 
 pub mod agent;
 pub mod event;
+pub mod memory;
+pub mod model;
 pub mod runtime;
 pub mod task;
 pub mod tool;
 
 pub use agent::{Agent, AgentId, AgentStatus};
 pub use event::{Event, EventBus};
+pub use memory::{MemoryError, MemoryId, MemoryMatch, MemoryQuery, MemoryRecord, MemoryStore};
+pub use model::{MessageRole, ModelError, ModelMessage, ModelProvider, ModelRequest, ModelResponse, ModelUsage};
 pub use runtime::{AgentRuntime, RuntimeError, RuntimeSnapshot};
 pub use task::{Task, TaskId, TaskStatus};
 pub use tool::{ToolCall, ToolDefinition, ToolRegistry, ToolRegistryError, ToolResult, ToolRisk};
