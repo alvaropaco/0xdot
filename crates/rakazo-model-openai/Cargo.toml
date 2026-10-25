@@ -1,0 +1,13 @@
+[package]
+name = "rakazo-model-openai"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.90"
+license = "Apache-2.0"
+
+[dependencies]
+rakazo-core = { path = "../rakazo-core" }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
