@@ -1,8 +1,11 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use rakazo_core::ToolCall;
 use serde::Serialize;
 use std::process::Command;
 use tauri::{AppHandle, Manager, Window};
+
+mod computer_bridge;
 
 #[derive(Debug, Serialize, Clone)]
 struct UpdateState {
@@ -29,9 +32,7 @@ async fn window_minimize(window: Window) -> Result<(), String> {
 
 #[tauri::command]
 async fn window_toggle_maximize(window: Window) -> Result<(), String> {
-    window
-        .toggle_maximize()
-        .map_err(|error| error.to_string())
+    window.toggle_maximize().map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -123,11 +124,17 @@ async fn update_install(app: AppHandle) -> Result<UpdateState, String> {
 
 #[tauri::command]
 async fn computer_request_access() -> Result<bool, String> {
-    // Deliberately fail closed during the migration. The current Electron
-    // implementation starts a Node HTTP listener around DesktopSandboxProvider.
-    // Tauri must not claim host-computer access until that capability is moved
-    // to a packaged sidecar/native runtime.
-    Ok(false)
+    // The native bridge is available on macOS, but OS privacy permissions are
+    // still enforced by the backend. Other platforms remain fail-closed.
+    #[cfg(target_os = "macos")]
+    { return Ok(true); }
+    #[cfg(not(target_os = "macos"))]
+    { Ok(false) }
+}
+
+#[tauri::command]
+async fn computer_execute(call: ToolCall) -> Result<serde_json::Value, String> {
+    computer_bridge::execute(call)
 }
 
 #[tauri::command]
@@ -157,6 +164,7 @@ fn main() {
             update_download,
             update_install,
             computer_request_access,
+            computer_execute,
             computer_revoke_access,
             badge_set,
         ])
