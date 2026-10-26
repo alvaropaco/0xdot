@@ -1,74 +1,53 @@
 # Rakazo Tauri Desktop
 
-Tauri 2 desktop shell for Rakazo.
-
-## Why this is a parallel shell
-
-The existing Electron desktop application contains product logic that is already reusable by the web application and packages. The Tauri migration therefore keeps the React/Vite UI and introduces a small native compatibility bridge instead of rewriting the renderer.
+Tauri 2 is the native desktop shell for Rakazo. The React/Vite renderer is shared with the web application while native agent execution, computer automation, filesystem/process access, memory, routines, approvals and MCP are implemented in Rust.
 
 ```text
                  Shared Rakazo Web UI
                          │
-              ┌──────────┴──────────┐
-              │                     │
-          Electron              Tauri 2
-          (legacy)               (new)
-              │                     │
-        Node/Electron APIs      Rust commands
-              │                     │
-              └──────────┬──────────┘
+                    Tauri 2 Shell
                          │
-                   Rakazo backend
+                  @rakazo/desktop-api
+                         │
+                    Rust Runtime
+        ┌────────────────┼────────────────┐
+      Agent            Tools          Scheduler
+        │                │                  │
+     Memory         Computer/MCP        Routines
+                         │
+                    OS host adapters
 ```
 
 ## Development
 
-Install the Tauri CLI with Rust/Cargo:
-
-```bash
-cargo install tauri-cli --version '^2.0.0' --locked
-```
-
-Then from the repository root:
+Install Rust/Cargo and run:
 
 ```bash
 pnpm install
 pnpm dev:tauri
 ```
 
-The Tauri shell starts the existing Vite web application and loads it in a native WebView.
+## Native capabilities
 
-## Current migration scope
+- Rust agent execution with OpenAI-compatible providers.
+- Durable local agent state and memory.
+- Human approval gates with timeout/failure handling.
+- Sandboxed workspace filesystem.
+- Host filesystem access under the user's home directory.
+- Capability-scoped host process execution with allowlists, timeouts and output limits.
+- Native macOS computer automation with privacy permission preflight.
+- Native MCP stdio server lifecycle and tool invocation.
+- Durable routines and background execution.
+- Deep-link and single-instance support.
+- Tauri updater integration and signed release pipeline.
+- Stable React-facing `@rakazo/desktop-api` boundary.
 
-Implemented:
+## Migration status
 
-- Tauri 2 application shell.
-- React/Vite reuse without duplicating the Rakazo UI.
-- Native window controls exposed through the existing `RakazoDesktop` contract.
-- System-browser URL opening for OAuth.
-- Compatibility bridge for the existing desktop-aware web code.
-- Cross-platform bundle targets for macOS, Windows and Linux.
-- Fail-closed host-computer access during migration.
-- Existing Electron desktop remains untouched and can be used as the reference implementation.
+Tauri is now the **primary native desktop architecture**. Electron is retained only as a legacy compatibility/reference application while downstream product code is migrated away from its APIs.
 
-Not yet migrated:
+The Tauri runtime intentionally fails closed when an OS capability is unavailable. It does not emulate permissions or claim unsupported host automation.
 
-1. The Node `DesktopSandboxProvider` host-computer listener.
-2. Docker Compose local-stack lifecycle and setup UI.
-3. Electron auto-update replacement with Tauri updater/signing.
-4. Full loopback OAuth callback capture.
-5. Native badge support.
-6. E2E packaging/signing/notarization pipelines.
+## Release
 
-The host-computer capability is intentionally **not** faked by the Tauri bridge. The current Electron implementation starts a credentialed local HTTP listener around `DesktopSandboxProvider`; shipping a Tauri build that merely reports this capability as available would create a security and functionality regression.
-
-## Next migration phase
-
-The next step is to extract the Electron-only native services into a standalone `desktop-runtime` package and ship that runtime as a Tauri sidecar. That sidecar should own:
-
-- host-computer HTTP server;
-- local computer consent/token storage;
-- Docker/local-stack lifecycle;
-- loopback OAuth callback server.
-
-After that extraction, Electron and Tauri can share the same native runtime contract, allowing Electron to be retired without changing the agent runtime or web UI.
+Stable Tauri releases are produced by `.github/workflows/release-tauri.yml` for macOS Apple Silicon/Intel, Linux and Windows. Signed updater artifacts require the repository secrets `TAURI_UPDATER_PUBLIC_KEY`, `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
