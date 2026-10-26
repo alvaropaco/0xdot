@@ -39,8 +39,32 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Check optional Playwright publication configuration
+        id: publication_config
+        env:
+          S3_ACCESS_KEY_ID: ${{ secrets.S3_ACCESS_KEY_ID }}
+          S3_SECRET_ACCESS_KEY: ${{ secrets.S3_SECRET_ACCESS_KEY }}
+          S3_BUCKET: ${{ vars.S3_BUCKET }}
+          S3_ENDPOINT: ${{ vars.S3_ENDPOINT }}
+          PLAYWRIGHT_PUBLIC_BASE_URL: ${{ vars.PLAYWRIGHT_PUBLIC_BASE_URL }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          missing=()
+          [[ -n "$S3_ACCESS_KEY_ID" ]] || missing+=(S3_ACCESS_KEY_ID)
+          [[ -n "$S3_SECRET_ACCESS_KEY" ]] || missing+=(S3_SECRET_ACCESS_KEY)
+          [[ -n "$S3_BUCKET" ]] || missing+=(S3_BUCKET)
+          [[ -n "$S3_ENDPOINT" ]] || missing+=(S3_ENDPOINT)
+          [[ -n "$PLAYWRIGHT_PUBLIC_BASE_URL" ]] || missing+=(PLAYWRIGHT_PUBLIC_BASE_URL)
+          if (( ${#missing[@]} > 0 )); then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Playwright visual report publication is disabled because S3 configuration is missing: ${missing[*]}"
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
       - name: Read Playwright job result
         id: playwright
+        if: steps.publication_config.outputs.configured == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RUN_ID: ${{ github.event.workflow_run.id }}
@@ -57,7 +81,7 @@ jobs:
           if [[ "$result" == "timed_out" ]]; then result="failure"; fi
           echo "result=$result" >> "$GITHUB_OUTPUT"
       - name: Resolve pull request
-        if: github.event.workflow_run.event == 'pull_request'
+        if: steps.publication_config.outputs.configured == 'true' && github.event.workflow_run.event == 'pull_request'
         id: pull_request
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -77,6 +101,7 @@ jobs:
           echo "number=$number" >> "$GITHUB_OUTPUT"
       - name: Check for Playwright artifact
         id: artifact
+        if: steps.publication_config.outputs.configured == 'true'
         env:
           ARTIFACT_NAME: playwright-artifacts-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -100,7 +125,7 @@ jobs:
             exit 1
           fi
       - name: Download Playwright artifacts
-        if: steps.artifact.outputs.exists == 'true'
+        if: steps.publication_config.outputs.configured == 'true' && steps.artifact.outputs.exists == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ARTIFACT_ID: ${{ steps.artifact.outputs.id }}
@@ -113,6 +138,7 @@ jobs:
             "$RUNNER_TEMP/playwright-artifacts.zip" "$RUNNER_TEMP/playwright-artifacts"
       - name: Publish trusted Playwright screenshot gallery
         id: publish
+        if: steps.publication_config.outputs.configured == 'true'
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.S3_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_SECRET_ACCESS_KEY }}
@@ -137,6 +163,7 @@ jobs:
         run: bash scripts/publish-playwright-report.sh
       - name: Link screenshot gallery from pull request
         if: >-
+          steps.publication_config.outputs.configured == 'true' &&
           github.event.workflow_run.event == 'pull_request' &&
           steps.pull_request.outputs.number != '' &&
           steps.publish.outputs.latest_pr_run == 'true'

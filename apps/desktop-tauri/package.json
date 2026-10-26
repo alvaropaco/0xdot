@@ -6,7 +6,7 @@
   "license": "Apache-2.0",
   "scripts": {
     "dev": "cargo tauri dev",
-    "build": "cargo tauri build",
+    "build": "node ../../scripts/ensure-tauri-cli.mjs && cargo tauri build",
     "check": "cargo tauri info"
   }
 }
