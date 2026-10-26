@@ -81,6 +81,9 @@ fn persist_execution(app: &AppHandle, result: &agent_bridge::AgentExecutionResul
 
 fn main() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            if let Some(window) = app.get_webview_window("main") { let _ = window.show(); let _ = window.set_focus(); }
+        }))
         .plugin(tauri_plugin_deep_link::init())
         .manage(approval::ApprovalBroker::default())
         .invoke_handler(tauri::generate_handler![window_close, window_minimize, window_toggle_maximize, window_state, open_external, oauth_open, oauth_cancel, update_state, update_check, update_download, update_install, computer_permission_state, computer_request_access, computer_execute, agent_execute, agent_start, agent_approve, agent_pending_approvals, agent_state, routine_list, routine_upsert, routine_remove, routine_tick, computer_revoke_access, badge_set])
