@@ -1,6 +1,8 @@
 use rakazo_core::{ApprovalDecision, ApprovalGate, ExecutorError, TaskId, ToolCall};
 use serde::Serialize;
-use std::{collections::HashMap, sync::{Arc, Condvar, Mutex}};
+use std::{collections::HashMap, sync::{Arc, Condvar, Mutex}, time::Duration};
+
+const APPROVAL_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 
 #[derive(Clone, Default)]
 pub struct ApprovalBroker {
@@ -34,8 +36,7 @@ impl ApprovalBroker {
 }
 
 impl ApprovalGate for ApprovalBroker {
-    fn request(&self, _task_id: TaskId, tool: &ToolCall) -> Result<ApprovalDecision, ExecutorError> {
-        let task_id = _task_id;
+    fn request(&self, task_id: TaskId, _tool: &ToolCall) -> Result<ApprovalDecision, ExecutorError> {
         let (lock, cv) = &*self.inner;
         let mut pending = lock.lock().map_err(|_| ExecutorError::Runtime("approval broker lock poisoned".into()))?;
         pending.insert(task_id, None);
@@ -45,11 +46,30 @@ impl ApprovalGate for ApprovalBroker {
                 pending.remove(&task_id);
                 return Ok(decision);
             }
-            pending = cv.wait(pending).map_err(|_| ExecutorError::Runtime("approval broker wait failed".into()))?;
+            let (next, timeout) = cv
+                .wait_timeout(pending, APPROVAL_TIMEOUT)
+                .map_err(|_| ExecutorError::Runtime("approval broker wait failed".into()))?;
+            pending = next;
+            if timeout.timed_out() {
+                pending.remove(&task_id);
+                return Err(ExecutorError::Runtime(format!("approval timed out after {} seconds", APPROVAL_TIMEOUT.as_secs())));
+            }
         }
     }
 }
 
 pub fn describe_pending(broker: &ApprovalBroker, task_id: TaskId, tool: String) -> Option<PendingApproval> {
     broker.pending().into_iter().find(|id| *id == task_id).map(|id| PendingApproval { task_id: id.to_string(), tool })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use uuid::Uuid;
+
+    #[test]
+    fn unknown_task_cannot_be_approved() {
+        let broker = ApprovalBroker::default();
+        assert!(!broker.decide(Uuid::new_v4(), ApprovalDecision::Approved));
+    }
 }
