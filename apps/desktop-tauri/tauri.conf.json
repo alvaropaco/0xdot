@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Rakazo",
+  "productName": "0xdot",
   "version": "0.3.3",
-  "identifier": "dev.rakazo.desktop",
+  "identifier": "com.0xdot.desktop",
   "build": {
     "beforeDevCommand": "pnpm --filter @rakazo/web dev --host 127.0.0.1",
     "beforeBuildCommand": "pnpm --filter @rakazo/web build",
@@ -14,7 +14,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Rakazo",
+        "title": "0xdot",
         "width": 1440,
         "height": 900,
         "minWidth": 1024,
@@ -30,7 +30,7 @@
   "plugins": {
     "deep-link": {
       "desktop": {
-        "schemes": ["rakazo"]
+        "schemes": ["xdot"]
       }
     }
   },
@@ -39,7 +39,7 @@
     "targets": ["app", "dmg", "nsis", "appimage"],
     "category": "Productivity",
     "shortDescription": "Persistent AI teammates",
-    "longDescription": "Rakazo is an open-source platform for persistent AI teammates and desktop automation.",
+    "longDescription": "0xdot is an open-source platform for persistent AI teammates and desktop automation.",
     "macOS": {
       "minimumSystemVersion": "11.0"
     },
