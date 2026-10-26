@@ -16,6 +16,7 @@ serde_json = "1"
 url = "2"
 rakazo-core = { path = "../../../crates/rakazo-core" }
 rakazo-host = { path = "../../../crates/rakazo-host" }
+rakazo-model-openai = { path = "../../../crates/rakazo-model-openai" }
 
 [features]
 default = ["custom-protocol"]
