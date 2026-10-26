@@ -65,10 +65,11 @@ pub fn describe_pending(broker: &ApprovalBroker, task_id: TaskId, tool: String) 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use uuid::Uuid;
 
     #[test]
     fn unknown_task_cannot_be_approved() {
         let broker = ApprovalBroker::default();
-        assert!(!broker.decide(TaskId::new(), ApprovalDecision::Approved));
+        assert!(!broker.decide(Uuid::new_v4(), ApprovalDecision::Approved));
     }
 }
