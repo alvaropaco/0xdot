@@ -30,16 +30,12 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
+        with: { fetch-depth: 0 }
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
+        with: { node-version: 22, cache: pnpm }
       - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
+        with: { targets: ${{ matrix.target }} }
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
@@ -48,24 +44,19 @@ jobs:
         run: cargo test --manifest-path crates/Cargo.toml
       - name: Generate release updater configuration
         shell: bash
-        env:
-          TAURI_UPDATER_PUBLIC_KEY: ${{ secrets.TAURI_UPDATER_PUBLIC_KEY }}
+        env: { TAURI_UPDATER_PUBLIC_KEY: ${{ secrets.TAURI_UPDATER_PUBLIC_KEY }} }
         run: |
           set -euo pipefail
           test -n "$TAURI_UPDATER_PUBLIC_KEY"
           node - <<'NODE'
           const fs = require('fs');
-          const pubkey = process.env.TAURI_UPDATER_PUBLIC_KEY;
-          const config = {
+          fs.writeFileSync('apps/desktop-tauri/tauri.release.json', JSON.stringify({
             bundle: { createUpdaterArtifacts: true },
-            plugins: {
-              updater: {
-                pubkey,
-                endpoints: ["https://github.com/alvaropaco/rakazo/releases/latest/download/latest.json"]
-              }
-            }
-          };
-          fs.writeFileSync('apps/desktop-tauri/tauri.release.json', JSON.stringify(config, null, 2));
+            plugins: { updater: {
+              pubkey: process.env.TAURI_UPDATER_PUBLIC_KEY,
+              endpoints: ['https://github.com/alvaropaco/rakazo/releases/latest/download/latest.json']
+            }}
+          }, null, 2));
           NODE
       - name: Build signed Tauri desktop and updater artifact
         run: pnpm --filter @rakazo/desktop-tauri build -- --target ${{ matrix.target }} --config tauri.release.json
@@ -84,16 +75,55 @@ jobs:
         run: rm -f apps/desktop-tauri/tauri.release.json
 
   publish:
-    name: Publish Tauri artifacts
+    name: Publish Tauri release and updater manifest
     needs: build
     runs-on: ubuntu-24.04
     steps:
+      - uses: actions/checkout@v5
+        with: { fetch-depth: 1 }
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
+          merge-multiple: false
+      - name: Prepare uniquely named release assets
+        shell: bash
+        env: { RELEASE_TAG: ${{ github.ref_name }} }
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          mkdir -p release-assets
+          copy_signed() {
+            local root="$1" target="$2" bundle_glob="$3" sig_glob="$4"
+            local bundle sig
+            bundle="$(find "$root" -type f -name "$bundle_glob" | head -n1)"
+            sig="$(find "$root" -type f -name "$sig_glob" | head -n1)"
+            test -n "$bundle" && test -f "$bundle"
+            test -n "$sig" && test -f "$sig"
+            cp "$bundle" "release-assets/$target"
+            cp "$sig" "release-assets/$target.sig"
+          }
+          copy_signed artifacts/rakazo-tauri-aarch64-apple-darwin darwin-aarch64.tar.gz '*.app.tar.gz' '*.app.tar.gz.sig'
+          copy_signed artifacts/rakazo-tauri-x86_64-apple-darwin darwin-x86_64.tar.gz '*.app.tar.gz' '*.app.tar.gz.sig'
+          copy_signed artifacts/rakazo-tauri-x86_64-unknown-linux-gnu linux-x86_64.AppImage '*.AppImage' '*.AppImage.sig'
+          copy_signed artifacts/rakazo-tauri-x86_64-pc-windows-msvc windows-x86_64-setup.exe '*-setup.exe' '*-setup.exe.sig'
+          version="${RELEASE_TAG#v}"
+          pub_date="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          base="https://github.com/alvaropaco/rakazo/releases/download/${RELEASE_TAG}"
+          jq -n \
+            --arg version "$version" \
+            --arg pub_date "$pub_date" \
+            --arg da_sig "$(cat release-assets/darwin-aarch64.tar.gz.sig)" \
+            --arg dx_sig "$(cat release-assets/darwin-x86_64.tar.gz.sig)" \
+            --arg l_sig "$(cat release-assets/linux-x86_64.AppImage.sig)" \
+            --arg w_sig "$(cat release-assets/windows-x86_64-setup.exe.sig)" \
+            --arg da_url "$base/darwin-aarch64.tar.gz" \
+            --arg dx_url "$base/darwin-x86_64.tar.gz" \
+            --arg l_url "$base/linux-x86_64.AppImage" \
+            --arg w_url "$base/windows-x86_64-setup.exe" \
+            '{version:$version,pub_date:$pub_date,platforms:{"darwin-aarch64":{url:$da_url,signature:$da_sig},"darwin-x86_64":{url:$dx_url,signature:$dx_sig},"linux-x86_64":{url:$l_url,signature:$l_sig},"windows-x86_64":{url:$w_url,signature:$w_sig}}}' > release-assets/latest.json
       - name: Publish GitHub release assets
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
-          files: artifacts/**/*
+          files: release-assets/*
           fail_on_unmatched_files: true
