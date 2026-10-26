@@ -10,6 +10,7 @@ mod agent_state;
 mod approval;
 mod computer_bridge;
 mod events;
+mod host_tools;
 mod memory_store;
 mod routine_state;
 
