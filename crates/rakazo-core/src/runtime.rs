@@ -77,7 +77,10 @@ impl AgentRuntime {
         let _ = self.events.publish(match status {
             AgentStatus::Running => Event::AgentStarted { agent_id: id },
             AgentStatus::Paused => Event::AgentPaused { agent_id: id },
-            _ => Event::AgentStatusChanged { agent_id: id, status },
+            _ => Event::AgentStatusChanged {
+                agent_id: id,
+                status,
+            },
         });
         Ok(())
     }
@@ -91,7 +94,10 @@ impl AgentRuntime {
         }
         state.tasks.insert(id, task);
         drop(state);
-        let _ = self.events.publish(Event::TaskCreated { task_id: id, agent_id });
+        let _ = self.events.publish(Event::TaskCreated {
+            task_id: id,
+            agent_id,
+        });
         Ok(id)
     }
 
@@ -133,7 +139,9 @@ mod tests {
     fn registers_agent_and_enqueues_task() {
         let runtime = AgentRuntime::new();
         let agent_id = runtime.register_agent(Agent::new("Test agent")).unwrap();
-        let task_id = runtime.enqueue_task(Task::new(agent_id, "run test")).unwrap();
+        let task_id = runtime
+            .enqueue_task(Task::new(agent_id, "run test"))
+            .unwrap();
         let snapshot = runtime.snapshot().unwrap();
         assert_eq!(snapshot.agents.len(), 1);
         assert_eq!(snapshot.tasks[0].id, task_id);
@@ -153,11 +161,24 @@ mod tests {
         let runtime = AgentRuntime::new();
         let mut events = runtime.events().subscribe();
         let agent_id = runtime.register_agent(Agent::new("Event agent")).unwrap();
-        let task_id = runtime.enqueue_task(Task::new(agent_id, "observe")).unwrap();
-        runtime.set_task_status(task_id, TaskStatus::Completed).unwrap();
+        let task_id = runtime
+            .enqueue_task(Task::new(agent_id, "observe"))
+            .unwrap();
+        runtime
+            .set_task_status(task_id, TaskStatus::Completed)
+            .unwrap();
 
-        assert!(matches!(events.try_recv().unwrap(), Event::AgentCreated { .. }));
-        assert!(matches!(events.try_recv().unwrap(), Event::TaskCreated { .. }));
-        assert!(matches!(events.try_recv().unwrap(), Event::TaskCompleted { .. }));
+        assert!(matches!(
+            events.try_recv().unwrap(),
+            Event::AgentCreated { .. }
+        ));
+        assert!(matches!(
+            events.try_recv().unwrap(),
+            Event::TaskCreated { .. }
+        ));
+        assert!(matches!(
+            events.try_recv().unwrap(),
+            Event::TaskCompleted { .. }
+        ));
     }
 }

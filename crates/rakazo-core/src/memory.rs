@@ -74,7 +74,11 @@ mod tests {
         }
 
         fn search(&self, query: &MemoryQuery) -> Result<Vec<MemoryMatch>, MemoryError> {
-            Ok(self.0.lock().unwrap().iter()
+            Ok(self
+                .0
+                .lock()
+                .unwrap()
+                .iter()
                 .filter(|r| r.agent_id == query.agent_id && r.content.contains(&query.text))
                 .take(query.limit)
                 .cloned()
@@ -87,13 +91,17 @@ mod tests {
     fn memory_contract_supports_store_and_search() {
         let store = InMemoryStore::default();
         let agent_id = Uuid::new_v4();
-        let id = store.remember(MemoryRecord::new(agent_id, "important legal context")).unwrap();
+        let id = store
+            .remember(MemoryRecord::new(agent_id, "important legal context"))
+            .unwrap();
 
-        let matches = store.search(&MemoryQuery {
-            agent_id,
-            text: "legal".into(),
-            limit: 5,
-        }).unwrap();
+        let matches = store
+            .search(&MemoryQuery {
+                agent_id,
+                text: "legal".into(),
+                limit: 5,
+            })
+            .unwrap();
 
         assert_eq!(id, matches[0].record.id);
         assert_eq!(matches[0].score, 1.0);

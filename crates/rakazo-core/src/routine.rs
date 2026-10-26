@@ -17,15 +17,34 @@ pub struct Routine {
 }
 
 impl Routine {
-    pub fn new(name: impl Into<String>, model: impl Into<String>, prompt: impl Into<String>, interval_seconds: u64) -> Self {
+    pub fn new(
+        name: impl Into<String>,
+        model: impl Into<String>,
+        prompt: impl Into<String>,
+        interval_seconds: u64,
+    ) -> Self {
         let interval_seconds = interval_seconds.max(1);
         let now = Utc::now();
-        Self { id: Uuid::new_v4(), name: name.into(), model: model.into(), prompt: prompt.into(), interval_seconds, enabled: true, last_run_at: None, next_run_at: now + Duration::seconds(interval_seconds as i64) }
+        Self {
+            id: Uuid::new_v4(),
+            name: name.into(),
+            model: model.into(),
+            prompt: prompt.into(),
+            interval_seconds,
+            enabled: true,
+            last_run_at: None,
+            next_run_at: now + Duration::seconds(interval_seconds as i64),
+        }
     }
 
-    pub fn due(&self, now: DateTime<Utc>) -> bool { self.enabled && self.next_run_at <= now }
+    pub fn due(&self, now: DateTime<Utc>) -> bool {
+        self.enabled && self.next_run_at <= now
+    }
 
-    pub fn mark_run(&mut self, now: DateTime<Utc>) { self.last_run_at = Some(now); self.next_run_at = now + Duration::seconds(self.interval_seconds as i64); }
+    pub fn mark_run(&mut self, now: DateTime<Utc>) {
+        self.last_run_at = Some(now);
+        self.next_run_at = now + Duration::seconds(self.interval_seconds as i64);
+    }
 }
 
 #[derive(Debug, Default)]
@@ -34,10 +53,31 @@ pub struct RoutineScheduler {
 }
 
 impl RoutineScheduler {
-    pub fn upsert(&mut self, routine: Routine) { if let Some(existing) = self.routines.iter_mut().find(|item| item.id == routine.id) { *existing = routine; } else { self.routines.push(routine); } }
-    pub fn remove(&mut self, id: RoutineId) -> bool { let before = self.routines.len(); self.routines.retain(|item| item.id != id); before != self.routines.len() }
-    pub fn list(&self) -> &[Routine] { &self.routines }
-    pub fn tick(&mut self, now: DateTime<Utc>) -> Vec<Routine> { let mut due = Vec::new(); for routine in &mut self.routines { if routine.due(now) { due.push(routine.clone()); routine.mark_run(now); } } due }
+    pub fn upsert(&mut self, routine: Routine) {
+        if let Some(existing) = self.routines.iter_mut().find(|item| item.id == routine.id) {
+            *existing = routine;
+        } else {
+            self.routines.push(routine);
+        }
+    }
+    pub fn remove(&mut self, id: RoutineId) -> bool {
+        let before = self.routines.len();
+        self.routines.retain(|item| item.id != id);
+        before != self.routines.len()
+    }
+    pub fn list(&self) -> &[Routine] {
+        &self.routines
+    }
+    pub fn tick(&mut self, now: DateTime<Utc>) -> Vec<Routine> {
+        let mut due = Vec::new();
+        for routine in &mut self.routines {
+            if routine.due(now) {
+                due.push(routine.clone());
+                routine.mark_run(now);
+            }
+        }
+        due
+    }
 }
 
 #[cfg(test)]
