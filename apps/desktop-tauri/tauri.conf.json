@@ -27,6 +27,13 @@
       "csp": null
     }
   },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["rakazo"]
+      }
+    }
+  },
   "bundle": {
     "active": true,
     "targets": ["app", "dmg", "nsis", "appimage"],
