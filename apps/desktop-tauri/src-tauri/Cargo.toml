@@ -1,8 +1,8 @@
 [package]
 name = "rakazo-desktop"
 version = "0.3.3"
-description = "Rakazo desktop runtime"
-authors = ["Rakazo"]
+description = "0xdot desktop runtime"
+authors = ["0xdot"]
 edition = "2021"
 rust-version = "1.90"
 

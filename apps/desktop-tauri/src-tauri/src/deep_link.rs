@@ -4,14 +4,14 @@ use tauri_plugin_deep_link::DeepLinkExt;
 pub fn setup(app: &AppHandle) -> Result<(), String> {
     if let Some(urls) = app.deep_link().get_current().map_err(|e| e.to_string())? {
         let urls: Vec<String> = urls.into_iter().map(|url| url.to_string()).collect();
-        let _ = app.emit("rakazo://deep-link", &urls);
+        let _ = app.emit("xdot://deep-link", &urls);
     }
 
     let handle = app.clone();
     app.deep_link()
         .on_open_url(move |event| {
             let urls: Vec<String> = event.urls().iter().map(ToString::to_string).collect();
-            let _ = handle.emit("rakazo://deep-link", &urls);
+            let _ = handle.emit("xdot://deep-link", &urls);
         })
         .map_err(|e| e.to_string())?;
 

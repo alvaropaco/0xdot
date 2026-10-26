@@ -1,4 +1,4 @@
-name: release-tauri
+name: release-0xdot
 
 on:
   push:
@@ -9,12 +9,12 @@ permissions:
   contents: write
 
 concurrency:
-  group: release-tauri-stable
+  group: release-0xdot-stable
   cancel-in-progress: false
 
 jobs:
   build:
-    name: Build Tauri ${{ matrix.target }}
+    name: Build 0xdot Tauri ${{ matrix.target }}
     strategy:
       fail-fast: false
       matrix:
@@ -54,11 +54,11 @@ jobs:
             bundle: { createUpdaterArtifacts: true },
             plugins: { updater: {
               pubkey: process.env.TAURI_UPDATER_PUBLIC_KEY,
-              endpoints: ['https://github.com/alvaropaco/rakazo/releases/latest/download/latest.json']
+              endpoints: ['https://github.com/alvaropaco/0xdot/releases/latest/download/latest.json']
             }}
           }, null, 2));
           NODE
-      - name: Build signed Tauri desktop and updater artifact
+      - name: Build signed 0xdot desktop and updater artifact
         run: pnpm --filter @rakazo/desktop-tauri build -- --target ${{ matrix.target }} --config tauri.release.json
         env:
           RAKAZO_ALLOW_DEV_SECRETS: "1"
@@ -67,7 +67,7 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: rakazo-tauri-${{ matrix.target }}
+          name: 0xdot-tauri-${{ matrix.target }}
           path: apps/desktop-tauri/src-tauri/target/${{ matrix.target }}/release/bundle/**
           if-no-files-found: error
       - name: Remove generated release configuration
@@ -75,7 +75,7 @@ jobs:
         run: rm -f apps/desktop-tauri/tauri.release.json
 
   publish:
-    name: Publish Tauri release and updater manifest
+    name: Publish 0xdot release and updater manifest
     needs: build
     runs-on: ubuntu-24.04
     steps:
@@ -102,13 +102,13 @@ jobs:
             cp "$bundle" "release-assets/$target"
             cp "$sig" "release-assets/$target.sig"
           }
-          copy_signed artifacts/rakazo-tauri-aarch64-apple-darwin darwin-aarch64.tar.gz '*.app.tar.gz' '*.app.tar.gz.sig'
-          copy_signed artifacts/rakazo-tauri-x86_64-apple-darwin darwin-x86_64.tar.gz '*.app.tar.gz' '*.app.tar.gz.sig'
-          copy_signed artifacts/rakazo-tauri-x86_64-unknown-linux-gnu linux-x86_64.AppImage '*.AppImage' '*.AppImage.sig'
-          copy_signed artifacts/rakazo-tauri-x86_64-pc-windows-msvc windows-x86_64-setup.exe '*-setup.exe' '*-setup.exe.sig'
+          copy_signed artifacts/0xdot-tauri-aarch64-apple-darwin darwin-aarch64.tar.gz '*.app.tar.gz' '*.app.tar.gz.sig'
+          copy_signed artifacts/0xdot-tauri-x86_64-apple-darwin darwin-x86_64.tar.gz '*.app.tar.gz' '*.app.tar.gz.sig'
+          copy_signed artifacts/0xdot-tauri-x86_64-unknown-linux-gnu linux-x86_64.AppImage '*.AppImage' '*.AppImage.sig'
+          copy_signed artifacts/0xdot-tauri-x86_64-pc-windows-msvc windows-x86_64-setup.exe '*-setup.exe' '*-setup.exe.sig'
           version="${RELEASE_TAG#v}"
           pub_date="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          base="https://github.com/alvaropaco/rakazo/releases/download/${RELEASE_TAG}"
+          base="https://github.com/alvaropaco/0xdot/releases/download/${RELEASE_TAG}"
           jq -n \
             --arg version "$version" \
             --arg pub_date "$pub_date" \

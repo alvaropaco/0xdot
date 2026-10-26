@@ -1,9 +1,9 @@
-# Rakazo Tauri Desktop
+# 0xdot Tauri Desktop
 
-Tauri 2 is the native desktop shell for Rakazo. The React/Vite renderer is shared with the web application while native agent execution, computer automation, filesystem/process access, memory, routines, approvals and MCP are implemented in Rust.
+Tauri 2 is the native desktop shell for 0xdot. The React/Vite renderer is shared with the web application while native agent execution, computer automation, filesystem/process access, memory, routines, approvals and MCP are implemented in Rust.
 
 ```text
-                 Shared Rakazo Web UI
+                 Shared 0xdot Web UI
                          │
                     Tauri 2 Shell
                          │
@@ -50,4 +50,4 @@ The Tauri runtime intentionally fails closed when an OS capability is unavailabl
 
 ## Release
 
-Stable Tauri releases are produced by `.github/workflows/release-tauri.yml` for macOS Apple Silicon/Intel, Linux and Windows. Signed updater artifacts require the repository secrets `TAURI_UPDATER_PUBLIC_KEY`, `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
+Stable 0xdot Tauri releases are produced by `.github/workflows/release-tauri.yml` for macOS Apple Silicon/Intel, Linux and Windows. Signed updater artifacts require the repository secrets `TAURI_UPDATER_PUBLIC_KEY` and `TAURI_SIGNING_PRIVATE_KEY`. The private signing key is currently generated without a password, so `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` is intentionally not required.

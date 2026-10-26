@@ -2,6 +2,7 @@
   "name": "@rakazo/desktop-tauri",
   "private": true,
   "version": "0.3.3",
+  "description": "0xdot native desktop runtime",
   "license": "Apache-2.0",
   "scripts": {
     "dev": "cargo tauri dev",
