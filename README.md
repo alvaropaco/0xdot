@@ -116,7 +116,6 @@ pnpm rust:test
 
 ```text
 apps/       web, api, worker, desktop, mobile and public website
-a
 packages/   domain, contracts, persistence, adapters, UI and test tooling
 crates/     native Rust agent, host and model runtimes
 infra/      local services, updater and computer images
