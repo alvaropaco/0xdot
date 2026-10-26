@@ -1,0 +1,83 @@
+name: release-tauri
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-tauri-stable
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build Tauri ${{ matrix.target }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            target: aarch64-apple-darwin
+          - os: macos-14
+            target: x86_64-apple-darwin
+          - os: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+          - os: windows-2022
+            target: x86_64-pc-windows-msvc
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Validate Rust runtime
+        run: cargo test --manifest-path crates/Cargo.toml
+
+      - name: Validate desktop API
+        run: pnpm --filter @rakazo/desktop-api check
+
+      - name: Build Tauri desktop
+        run: pnpm --filter @rakazo/desktop-tauri build -- --target ${{ matrix.target }}
+        env:
+          RAKAZO_ALLOW_DEV_SECRETS: "1"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: rakazo-tauri-${{ matrix.target }}
+          path: apps/desktop-tauri/src-tauri/target/${{ matrix.target }}/release/bundle/**
+          if-no-files-found: error
+
+  publish:
+    name: Publish Tauri artifacts
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Publish GitHub release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: artifacts/**/*
+          fail_on_unmatched_files: true
