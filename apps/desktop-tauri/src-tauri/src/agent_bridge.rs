@@ -1,12 +1,13 @@
-use crate::{approval::ApprovalBroker, memory_store::JsonMemoryStore};
+use crate::{approval::ApprovalBroker, host_tools::HostToolRuntime, memory_store::JsonMemoryStore};
 use rakazo_core::{Agent, AgentExecutor, AgentRuntime, ExecutionInput, ExecutorError, MemoryRecord, MemoryStore, ModelProvider, RuntimeSnapshot, Task, TaskId, ToolCall, ToolExecutor, ToolRegistry, ToolResult, ToolRisk, ToolDefinition, ToolRuntime, WorkspaceFs};
 use rakazo_model_openai::OpenAiCompatibleProvider;
 use std::{path::Path, sync::Arc};
 
-struct HostToolExecutor { workspace: Arc<ToolRuntime> }
+struct HostToolExecutor { workspace: Arc<ToolRuntime>, host: HostToolRuntime }
 impl ToolExecutor for HostToolExecutor {
     fn execute(&self, call: &ToolCall) -> Result<ToolResult, ExecutorError> {
         if call.name.starts_with("filesystem.") { return self.workspace.execute(call).map_err(|e| ExecutorError::Tool(e.to_string())); }
+        if call.name.starts_with("host.") { return self.host.execute(call); }
         crate::computer_bridge::execute(call).map(|value| serde_json::from_value(value).unwrap_or(ToolResult { success: false, output: serde_json::json!({"error": "invalid computer tool response"}) })).map_err(ExecutorError::Tool)
     }
 }
@@ -18,14 +19,16 @@ pub fn execute_with_runtime(provider: &dyn ModelProvider, runtime: AgentRuntime,
     let mut workspace = ToolRuntime::new();
     rakazo_core::register_workspace_tools(&mut workspace, workspace_fs);
     let workspace = Arc::new(workspace);
+    let host = HostToolRuntime::new()?;
     let mut tools = ToolRegistry::default();
     rakazo_core::register_computer_automation_definitions(&mut tools).map_err(|e| e.to_string())?;
     tools.register(ToolDefinition { name: "filesystem.read_file".into(), description: "Read a text file inside the agent workspace.".into(), risk: ToolRisk::ReadOnly, requires_approval: false }).map_err(|e| e.to_string())?;
     tools.register(ToolDefinition { name: "filesystem.write_file".into(), description: "Write a text file inside the agent workspace.".into(), risk: ToolRisk::Mutating, requires_approval: true }).map_err(|e| e.to_string())?;
     tools.register(ToolDefinition { name: "filesystem.list_dir".into(), description: "List files inside the agent workspace.".into(), risk: ToolRisk::ReadOnly, requires_approval: false }).map_err(|e| e.to_string())?;
+    HostToolRuntime::register_definitions(&mut tools)?;
 
     let memory = JsonMemoryStore::open(memory_path).map_err(|e| e.to_string())?;
-    let executor = AgentExecutor::new(&runtime, provider, &tools, &HostToolExecutor { workspace }, &approval).with_memory(&memory);
+    let executor = AgentExecutor::new(&runtime, provider, &tools, &HostToolExecutor { workspace, host }, &approval).with_memory(&memory);
     let output = executor.execute(ExecutionInput { task_id, agent_id, model, prompt: prompt.clone(), system_prompt, temperature, max_tokens }).map_err(|e| e.to_string())?;
     if output.completed { memory.remember(MemoryRecord::new(agent_id, format!("Task: {prompt}\nResult: {}", output.content))).map_err(|e| e.to_string())?; }
     let snapshot = runtime.snapshot().map_err(|e| e.to_string())?;
