@@ -11,6 +11,7 @@ pub mod computer_tools;
 pub mod event;
 pub mod executor;
 pub mod memory;
+pub mod mcp;
 pub mod model;
 pub mod routine;
 pub mod runtime;
@@ -25,6 +26,7 @@ pub use computer_tools::{register_computer_automation_definitions, ComputerToolE
 pub use event::{Event, EventBus};
 pub use executor::{AgentExecutor, ApprovalDecision, ApprovalGate, ExecutionInput, ExecutionOutput, ExecutorError, ToolExecutor};
 pub use memory::{MemoryError, MemoryId, MemoryMatch, MemoryQuery, MemoryRecord, MemoryStore};
+pub use mcp::{McpClient, McpError, McpServerConfig, McpTool};
 pub use model::{MessageRole, ModelError, ModelMessage, ModelProvider, ModelRequest, ModelResponse, ModelUsage};
 pub use routine::{Routine, RoutineId, RoutineScheduler};
 pub use runtime::{AgentRuntime, RuntimeError, RuntimeSnapshot};
