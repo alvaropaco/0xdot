@@ -2,6 +2,7 @@
 
 use rakazo_core::{ApprovalDecision, Routine, RoutineId, ToolCall};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::{fs, path::PathBuf, process::Command};
 use tauri::{AppHandle, Manager, State, Window};
 
@@ -12,6 +13,7 @@ mod computer_bridge;
 mod deep_link;
 mod events;
 mod host_tools;
+mod mcp_state;
 mod memory_store;
 mod routine_state;
 
@@ -36,6 +38,11 @@ mod routine_state;
 #[tauri::command] async fn computer_request_access() -> Result<bool, String> { let state = computer_permission_state().await?; Ok(state.screen_recording && state.accessibility) }
 #[tauri::command] async fn computer_execute(call: ToolCall) -> Result<serde_json::Value, String> { computer_bridge::execute(call) }
 
+#[tauri::command] fn mcp_connect(request: mcp_state::McpConnectRequest, state: State<'_, mcp_state::McpState>) -> Result<mcp_state::McpServerTools, String> { state.connect(request) }
+#[tauri::command] fn mcp_list_tools(id: String, state: State<'_, mcp_state::McpState>) -> Result<Vec<rakazo_core::McpTool>, String> { state.list_tools(&id) }
+#[tauri::command] fn mcp_call_tool(id: String, name: String, arguments: Value, state: State<'_, mcp_state::McpState>) -> Result<Value, String> { state.call_tool(&id, &name, arguments) }
+#[tauri::command] fn mcp_disconnect(id: String, state: State<'_, mcp_state::McpState>) -> Result<bool, String> { state.disconnect(&id) }
+
 fn workspace_root(app: &AppHandle, agent_id: uuid::Uuid) -> Result<PathBuf, String> { let root = app.path().app_data_dir().map_err(|e| format!("failed to resolve app data directory: {e}"))?.join("workspaces").join(agent_id.to_string()); fs::create_dir_all(&root).map_err(|e| format!("failed to create workspace: {e}"))?; Ok(root) }
 fn memory_path(app: &AppHandle) -> Result<PathBuf, String> { Ok(app.path().app_data_dir().map_err(|e| format!("failed to resolve app data directory: {e}"))?.join("memory.json")) }
 fn routine_path(app: &AppHandle) -> Result<PathBuf, String> { Ok(app.path().app_data_dir().map_err(|e| format!("failed to resolve app data directory: {e}"))?.join("routines.json")) }
@@ -48,10 +55,7 @@ fn spawn_agent(app: AppHandle, request: AgentExecutionRequest, broker: approval:
     runtime.enqueue_task(task).map_err(|e| e.to_string())?;
     events::forward(app.clone(), runtime.events().subscribe());
     tauri::async_runtime::spawn_blocking(move || {
-        let result = (|| -> Result<_, String> {
-            let provider = agent_bridge::provider_from_env()?;
-            agent_bridge::execute_with_runtime(&provider, runtime, agent_id, task_id, request.model, request.prompt, request.system_prompt, request.temperature, request.max_tokens, broker, root, memory)
-        })();
+        let result = (|| -> Result<_, String> { let provider = agent_bridge::provider_from_env()?; agent_bridge::execute_with_runtime(&provider, runtime, agent_id, task_id, request.model, request.prompt, request.system_prompt, request.temperature, request.max_tokens, broker, root, memory) })();
         if let Ok(result) = result { let _ = persist_execution(&app, &result); }
     });
     Ok(task_id)
@@ -81,27 +85,16 @@ fn persist_execution(app: &AppHandle, result: &agent_bridge::AgentExecutionResul
 
 fn main() {
     tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
-            if let Some(window) = app.get_webview_window("main") { let _ = window.show(); let _ = window.set_focus(); }
-        }))
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| { if let Some(window) = app.get_webview_window("main") { let _ = window.show(); let _ = window.set_focus(); } }))
         .plugin(tauri_plugin_deep_link::init())
         .manage(approval::ApprovalBroker::default())
-        .invoke_handler(tauri::generate_handler![window_close, window_minimize, window_toggle_maximize, window_state, open_external, oauth_open, oauth_cancel, update_state, update_check, update_download, update_install, computer_permission_state, computer_request_access, computer_execute, agent_execute, agent_start, agent_approve, agent_pending_approvals, agent_state, routine_list, routine_upsert, routine_remove, routine_tick, computer_revoke_access, badge_set])
+        .manage(mcp_state::McpState::default())
+        .invoke_handler(tauri::generate_handler![window_close, window_minimize, window_toggle_maximize, window_state, open_external, oauth_open, oauth_cancel, update_state, update_check, update_download, update_install, computer_permission_state, computer_request_access, computer_execute, mcp_connect, mcp_list_tools, mcp_call_tool, mcp_disconnect, agent_execute, agent_start, agent_approve, agent_pending_approvals, agent_state, routine_list, routine_upsert, routine_remove, routine_tick, computer_revoke_access, badge_set])
         .setup(|app| {
             if let Some(window) = app.get_webview_window("main") { let _ = window.set_focus(); }
             deep_link::setup(app.handle())?;
-            let handle = app.handle().clone();
-            let broker = app.state::<approval::ApprovalBroker>().inner().clone();
-            tauri::async_runtime::spawn(async move {
-                loop {
-                    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-                    let Ok(store) = routine_state::RoutineStore::open(routine_path(&handle).unwrap_or_else(|_| PathBuf::from("routines.json"))) else { continue; };
-                    let Ok(due) = store.tick() else { continue; };
-                    for routine in due {
-                        let _ = spawn_agent(handle.clone(), AgentExecutionRequest { model: routine.model, prompt: routine.prompt, system_prompt: None, temperature: None, max_tokens: None }, broker.clone());
-                    }
-                }
-            });
+            let handle = app.handle().clone(); let broker = app.state::<approval::ApprovalBroker>().inner().clone();
+            tauri::async_runtime::spawn(async move { loop { tokio::time::sleep(std::time::Duration::from_secs(5)).await; let Ok(store) = routine_state::RoutineStore::open(routine_path(&handle).unwrap_or_else(|_| PathBuf::from("routines.json"))) else { continue; }; let Ok(due) = store.tick() else { continue; }; for routine in due { let _ = spawn_agent(handle.clone(), AgentExecutionRequest { model: routine.model, prompt: routine.prompt, system_prompt: None, temperature: None, max_tokens: None }, broker.clone()); } } });
             Ok(())
         })
         .run(tauri::generate_context!())
