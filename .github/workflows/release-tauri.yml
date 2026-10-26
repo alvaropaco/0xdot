@@ -36,6 +36,8 @@ jobs:
         with: { node-version: 22, cache: pnpm }
       - uses: dtolnay/rust-toolchain@stable
         with: { targets: ${{ matrix.target }} }
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version 2.12.2 --locked
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
