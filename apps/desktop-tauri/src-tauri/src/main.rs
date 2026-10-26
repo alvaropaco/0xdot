@@ -9,6 +9,7 @@ mod agent_bridge;
 mod agent_state;
 mod approval;
 mod computer_bridge;
+mod events;
 mod memory_store;
 mod routine_state;
 
@@ -43,6 +44,7 @@ fn spawn_agent(app: AppHandle, request: AgentExecutionRequest, broker: approval:
     let root = workspace_root(&app, agent_id)?;
     let memory = memory_path(&app)?;
     runtime.enqueue_task(task).map_err(|e| e.to_string())?;
+    events::forward(app.clone(), runtime.events().subscribe());
     tauri::async_runtime::spawn_blocking(move || {
         let result = (|| -> Result<_, String> {
             let provider = agent_bridge::provider_from_env()?;
@@ -57,6 +59,7 @@ fn spawn_agent(app: AppHandle, request: AgentExecutionRequest, broker: approval:
     let (runtime, agent_id, task) = agent_bridge::new_runtime_task(request.prompt.clone())?;
     let root = workspace_root(&app, agent_id)?; let memory = memory_path(&app)?;
     runtime.enqueue_task(task.clone()).map_err(|e| e.to_string())?;
+    events::forward(app.clone(), runtime.events().subscribe());
     let result = tauri::async_runtime::spawn_blocking(move || { let provider = agent_bridge::provider_from_env()?; agent_bridge::execute_with_runtime(&provider, runtime, agent_id, task.id, request.model, request.prompt, request.system_prompt, request.temperature, request.max_tokens, approval::ApprovalBroker::default(), root, memory) }).await.map_err(|e| e.to_string())??;
     persist_execution(&app, &result)?;
     Ok(AgentExecutionResponse { task_id: result.task_id.to_string(), content: result.content, tool_calls: result.tool_calls, completed: result.completed })
