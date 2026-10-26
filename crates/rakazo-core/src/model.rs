@@ -23,15 +23,24 @@ pub struct ModelMessage {
 
 impl ModelMessage {
     pub fn system(content: impl Into<String>) -> Self {
-        Self { role: MessageRole::System, content: content.into() }
+        Self {
+            role: MessageRole::System,
+            content: content.into(),
+        }
     }
 
     pub fn user(content: impl Into<String>) -> Self {
-        Self { role: MessageRole::User, content: content.into() }
+        Self {
+            role: MessageRole::User,
+            content: content.into(),
+        }
     }
 
     pub fn assistant(content: impl Into<String>) -> Self {
-        Self { role: MessageRole::Assistant, content: content.into() }
+        Self {
+            role: MessageRole::Assistant,
+            content: content.into(),
+        }
     }
 }
 
@@ -82,10 +91,17 @@ mod tests {
     impl ModelProvider for FakeProvider {
         fn complete(&self, request: &ModelRequest) -> Result<ModelResponse, ModelError> {
             Ok(ModelResponse {
-                content: request.messages.last().map(|m| m.content.clone()).unwrap_or_default(),
+                content: request
+                    .messages
+                    .last()
+                    .map(|m| m.content.clone())
+                    .unwrap_or_default(),
                 tool_calls: Vec::new(),
                 finish_reason: Some("stop".into()),
-                usage: Some(ModelUsage { input_tokens: 1, output_tokens: 1 }),
+                usage: Some(ModelUsage {
+                    input_tokens: 1,
+                    output_tokens: 1,
+                }),
             })
         }
     }
@@ -93,13 +109,15 @@ mod tests {
     #[test]
     fn provider_contract_is_provider_neutral() {
         let provider = FakeProvider;
-        let response = provider.complete(&ModelRequest {
-            model: "test-model".into(),
-            messages: vec![ModelMessage::user("hello")],
-            tools: Vec::new(),
-            temperature: None,
-            max_tokens: Some(100),
-        }).unwrap();
+        let response = provider
+            .complete(&ModelRequest {
+                model: "test-model".into(),
+                messages: vec![ModelMessage::user("hello")],
+                tools: Vec::new(),
+                temperature: None,
+                max_tokens: Some(100),
+            })
+            .unwrap();
 
         assert_eq!(response.content, "hello");
     }

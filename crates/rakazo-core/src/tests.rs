@@ -30,7 +30,8 @@ mod tests {
         let bus = EventBus::new(16);
         let mut receiver = bus.subscribe();
         let agent = Agent::new("Test Agent");
-        bus.publish(Event::AgentCreated { agent_id: agent.id }).unwrap();
+        bus.publish(Event::AgentCreated { agent_id: agent.id })
+            .unwrap();
         let event = receiver.try_recv().unwrap();
         assert!(matches!(event, Event::AgentCreated { agent_id } if agent_id == agent.id));
     }

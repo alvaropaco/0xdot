@@ -1,4 +1,7 @@
-use rakazo_core::{MessageRole, ModelError, ModelMessage, ModelProvider, ModelRequest, ModelResponse, ModelUsage, ToolCall, ToolDefinition};
+use rakazo_core::{
+    MessageRole, ModelError, ModelMessage, ModelProvider, ModelRequest, ModelResponse, ModelUsage,
+    ToolCall, ToolDefinition,
+};
 use reqwest::blocking::Client;
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -20,17 +23,26 @@ pub struct OpenAiCompatibleProvider {
 }
 
 impl OpenAiCompatibleProvider {
-    pub fn new(base_url: impl Into<String>, api_key: impl Into<String>) -> Result<Self, OpenAiProviderError> {
+    pub fn new(
+        base_url: impl Into<String>,
+        api_key: impl Into<String>,
+    ) -> Result<Self, OpenAiProviderError> {
         let mut base_url = base_url.into().trim_end_matches('/').to_string();
         if !base_url.ends_with("/v1") {
             base_url.push_str("/v1");
         }
-        Ok(Self { client: Client::builder().build()?, base_url, api_key: api_key.into() })
+        Ok(Self {
+            client: Client::builder().build()?,
+            base_url,
+            api_key: api_key.into(),
+        })
     }
 
     pub fn from_env() -> Result<Self, OpenAiProviderError> {
-        let base_url = std::env::var("RAKAZO_MODEL_BASE_URL").unwrap_or_else(|_| "https://api.openai.com/v1".into());
-        let api_key = std::env::var("RAKAZO_MODEL_API_KEY").map_err(|_| OpenAiProviderError::Response("RAKAZO_MODEL_API_KEY is not set".into()))?;
+        let base_url = std::env::var("RAKAZO_MODEL_BASE_URL")
+            .unwrap_or_else(|_| "https://api.openai.com/v1".into());
+        let api_key = std::env::var("RAKAZO_MODEL_API_KEY")
+            .map_err(|_| OpenAiProviderError::Response("RAKAZO_MODEL_API_KEY is not set".into()))?;
         Self::new(base_url, api_key)
     }
 
@@ -38,39 +50,64 @@ impl OpenAiCompatibleProvider {
         let messages: Vec<Value> = request.messages.iter().map(message_json).collect();
         let tools: Vec<Value> = request.tools.iter().map(tool_json).collect();
         let mut body = json!({ "model": request.model, "messages": messages });
-        if let Some(value) = request.temperature { body["temperature"] = json!(value); }
-        if let Some(value) = request.max_tokens { body["max_tokens"] = json!(value); }
-        if !tools.is_empty() { body["tools"] = Value::Array(tools); }
+        if let Some(value) = request.temperature {
+            body["temperature"] = json!(value);
+        }
+        if let Some(value) = request.max_tokens {
+            body["max_tokens"] = json!(value);
+        }
+        if !tools.is_empty() {
+            body["tools"] = Value::Array(tools);
+        }
         body
     }
 }
 
 impl ModelProvider for OpenAiCompatibleProvider {
     fn complete(&self, request: &ModelRequest) -> Result<ModelResponse, ModelError> {
-        let response = self.client
+        let response = self
+            .client
             .post(format!("{}/chat/completions", self.base_url))
             .bearer_auth(&self.api_key)
             .json(&self.request_json(request))
             .send()
             .map_err(|error| ModelError::Provider(error.to_string()))?;
         let status = response.status();
-        let body = response.text().map_err(|error| ModelError::Provider(error.to_string()))?;
+        let body = response
+            .text()
+            .map_err(|error| ModelError::Provider(error.to_string()))?;
         if !status.is_success() {
-            return Err(ModelError::Provider(format!("HTTP {}: {}", status.as_u16(), body)));
+            return Err(ModelError::Provider(format!(
+                "HTTP {}: {}",
+                status.as_u16(),
+                body
+            )));
         }
 
         let parsed: ChatCompletionResponse = serde_json::from_str(&body)
             .map_err(|error| ModelError::Provider(format!("invalid response JSON: {error}")))?;
-        let choice = parsed.choices.first().ok_or_else(|| ModelError::Provider("provider returned no choices".into()))?;
-        let tool_calls = choice.message.tool_calls.iter().map(|call| ToolCall {
-            name: call.function.name.clone(),
-            arguments: serde_json::from_str(&call.function.arguments).unwrap_or_else(|_| json!({"raw": call.function.arguments})),
-        }).collect();
+        let choice = parsed
+            .choices
+            .first()
+            .ok_or_else(|| ModelError::Provider("provider returned no choices".into()))?;
+        let tool_calls = choice
+            .message
+            .tool_calls
+            .iter()
+            .map(|call| ToolCall {
+                name: call.function.name.clone(),
+                arguments: serde_json::from_str(&call.function.arguments)
+                    .unwrap_or_else(|_| json!({"raw": call.function.arguments})),
+            })
+            .collect();
         Ok(ModelResponse {
             content: choice.message.content.clone().unwrap_or_default(),
             tool_calls,
             finish_reason: choice.finish_reason.clone(),
-            usage: parsed.usage.map(|usage| ModelUsage { input_tokens: usage.prompt_tokens, output_tokens: usage.completion_tokens }),
+            usage: parsed.usage.map(|usage| ModelUsage {
+                input_tokens: usage.prompt_tokens,
+                output_tokens: usage.completion_tokens,
+            }),
         })
     }
 }
@@ -94,17 +131,35 @@ fn tool_json(tool: &ToolDefinition) -> Value {
 }
 
 #[derive(Debug, Deserialize)]
-struct ChatCompletionResponse { choices: Vec<Choice>, usage: Option<Usage> }
+struct ChatCompletionResponse {
+    choices: Vec<Choice>,
+    usage: Option<Usage>,
+}
 #[derive(Debug, Deserialize)]
-struct Choice { message: ResponseMessage, finish_reason: Option<String> }
+struct Choice {
+    message: ResponseMessage,
+    finish_reason: Option<String>,
+}
 #[derive(Debug, Deserialize)]
-struct ResponseMessage { content: Option<String>, #[serde(default)] tool_calls: Vec<ResponseToolCall> }
+struct ResponseMessage {
+    content: Option<String>,
+    #[serde(default)]
+    tool_calls: Vec<ResponseToolCall>,
+}
 #[derive(Debug, Deserialize)]
-struct ResponseToolCall { function: FunctionCall }
+struct ResponseToolCall {
+    function: FunctionCall,
+}
 #[derive(Debug, Deserialize)]
-struct FunctionCall { name: String, arguments: String }
+struct FunctionCall {
+    name: String,
+    arguments: String,
+}
 #[derive(Debug, Deserialize)]
-struct Usage { prompt_tokens: u64, completion_tokens: u64 }
+struct Usage {
+    prompt_tokens: u64,
+    completion_tokens: u64,
+}
 
 #[cfg(test)]
 mod tests {
@@ -120,7 +175,12 @@ mod tests {
 
     #[test]
     fn serializes_tool_definition() {
-        let tool = ToolDefinition { name: "computer.screen.capture".into(), description: "Capture screen".into(), risk: rakazo_core::ToolRisk::ReadOnly, requires_approval: false };
+        let tool = ToolDefinition {
+            name: "computer.screen.capture".into(),
+            description: "Capture screen".into(),
+            risk: rakazo_core::ToolRisk::ReadOnly,
+            requires_approval: false,
+        };
         let value = tool_json(&tool);
         assert_eq!(value["function"]["name"], "computer.screen.capture");
         assert_eq!(value["function"]["parameters"]["type"], "object");

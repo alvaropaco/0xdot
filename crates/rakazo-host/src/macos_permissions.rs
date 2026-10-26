@@ -33,7 +33,10 @@ mod tests {
 
     #[test]
     fn state_is_copyable() {
-        let state = MacOsPermissionState { screen_recording: true, accessibility: false };
+        let state = MacOsPermissionState {
+            screen_recording: true,
+            accessibility: false,
+        };
         assert_eq!(state, state);
     }
 }
