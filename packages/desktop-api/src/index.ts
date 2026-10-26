@@ -40,7 +40,7 @@ export const DESKTOP_EVENTS = {
 } as const;
 
 export function isTauriDesktop(): boolean {
-  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+  return typeof window !== "undefined" && Object.prototype.hasOwnProperty.call(window, "__TAURI_INTERNALS__");
 }
 
 export const desktopApi = {
