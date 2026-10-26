@@ -1,0 +1,40 @@
+name: repair-ci
+
+on:
+  push:
+    branches: [fix/ci-release]
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.90.0
+          components: rustfmt
+      - name: Regenerate pnpm lockfile
+        run: pnpm install --lockfile-only
+      - name: Format Rust workspace
+        run: cargo fmt --manifest-path crates/Cargo.toml --all
+      - name: Commit repaired CI state
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add pnpm-lock.yaml crates
+          if git diff --cached --quiet; then
+            echo "No repair changes required."
+            exit 0
+          fi
+          git commit -m "chore(ci): repair lockfile and rust formatting"
+          git push
