@@ -9,6 +9,7 @@ mod agent_bridge;
 mod agent_state;
 mod approval;
 mod computer_bridge;
+mod deep_link;
 mod events;
 mod host_tools;
 mod memory_store;
@@ -79,9 +80,13 @@ fn persist_execution(app: &AppHandle, result: &agent_bridge::AgentExecutionResul
 #[tauri::command] async fn badge_set(_count: u32) -> Result<bool, String> { Ok(false) }
 
 fn main() {
-    tauri::Builder::default().manage(approval::ApprovalBroker::default()).invoke_handler(tauri::generate_handler![window_close, window_minimize, window_toggle_maximize, window_state, open_external, oauth_open, oauth_cancel, update_state, update_check, update_download, update_install, computer_permission_state, computer_request_access, computer_execute, agent_execute, agent_start, agent_approve, agent_pending_approvals, agent_state, routine_list, routine_upsert, routine_remove, routine_tick, computer_revoke_access, badge_set])
+    tauri::Builder::default()
+        .plugin(tauri_plugin_deep_link::init())
+        .manage(approval::ApprovalBroker::default())
+        .invoke_handler(tauri::generate_handler![window_close, window_minimize, window_toggle_maximize, window_state, open_external, oauth_open, oauth_cancel, update_state, update_check, update_download, update_install, computer_permission_state, computer_request_access, computer_execute, agent_execute, agent_start, agent_approve, agent_pending_approvals, agent_state, routine_list, routine_upsert, routine_remove, routine_tick, computer_revoke_access, badge_set])
         .setup(|app| {
             if let Some(window) = app.get_webview_window("main") { let _ = window.set_focus(); }
+            deep_link::setup(app.handle())?;
             let handle = app.handle().clone();
             let broker = app.state::<approval::ApprovalBroker>().inner().clone();
             tauri::async_runtime::spawn(async move {
