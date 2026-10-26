@@ -46,16 +46,42 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Validate Rust runtime
         run: cargo test --manifest-path crates/Cargo.toml
-      - name: Build Tauri desktop
-        run: pnpm --filter @rakazo/desktop-tauri build -- --target ${{ matrix.target }}
+      - name: Generate release updater configuration
+        shell: bash
+        env:
+          TAURI_UPDATER_PUBLIC_KEY: ${{ secrets.TAURI_UPDATER_PUBLIC_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$TAURI_UPDATER_PUBLIC_KEY"
+          node - <<'NODE'
+          const fs = require('fs');
+          const pubkey = process.env.TAURI_UPDATER_PUBLIC_KEY;
+          const config = {
+            bundle: { createUpdaterArtifacts: true },
+            plugins: {
+              updater: {
+                pubkey,
+                endpoints: ["https://github.com/alvaropaco/rakazo/releases/latest/download/latest.json"]
+              }
+            }
+          };
+          fs.writeFileSync('apps/desktop-tauri/tauri.release.json', JSON.stringify(config, null, 2));
+          NODE
+      - name: Build signed Tauri desktop and updater artifact
+        run: pnpm --filter @rakazo/desktop-tauri build -- --target ${{ matrix.target }} --config tauri.release.json
         env:
           RAKAZO_ALLOW_DEV_SECRETS: "1"
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: rakazo-tauri-${{ matrix.target }}
           path: apps/desktop-tauri/src-tauri/target/${{ matrix.target }}/release/bundle/**
           if-no-files-found: error
+      - name: Remove generated release configuration
+        if: always()
+        run: rm -f apps/desktop-tauri/tauri.release.json
 
   publish:
     name: Publish Tauri artifacts
