@@ -67,17 +67,86 @@ jobs:
             }}
           }, null, 2));
           NODE
+      # Developer ID signing + notarization, when the secrets exist.
+      # tauri-bundler imports the .p12 into a temporary keychain by itself,
+      # signs with the hardened runtime and notarizes as part of `tauri build`.
+      # Without the certificate the conf-pinned ad-hoc identity ("-" in
+      # tauri.conf.json) still seals the bundle, so the shipped app opens
+      # after the one-time Gatekeeper confirmation.
+      - name: Prepare Apple code signing and notarization
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          conf="apps/desktop-tauri/src-tauri/tauri.conf.json"
+          identity="${APPLE_SIGNING_IDENTITY:-Developer ID Application}"
+          if [ -z "$APPLE_CERTIFICATE" ] || [ -z "$APPLE_CERTIFICATE_PASSWORD" ]; then
+            echo "APPLE_CERTIFICATE absent — keeping the ad-hoc signing identity"
+            echo "MACOS_CODESIGN_MODE=adhoc" >> "$GITHUB_ENV"
+            exit 0
+          fi
+          jq --arg identity "$identity" '.bundle.macOS.signingIdentity = $identity' "$conf" > "$conf.tmp" && mv "$conf.tmp" "$conf"
+          {
+            echo "APPLE_CERTIFICATE<<__APPLE_CERT_EOF__"
+            printf '%s\n' "$APPLE_CERTIFICATE"
+            echo "__APPLE_CERT_EOF__"
+            echo "APPLE_CERTIFICATE_PASSWORD=$APPLE_CERTIFICATE_PASSWORD"
+            echo "APPLE_SIGNING_IDENTITY=$identity"
+          } >> "$GITHUB_ENV"
+          mode="devid"
+          if [ -n "$APPLE_ID" ] && [ -n "$APPLE_PASSWORD" ] && [ -n "$APPLE_TEAM_ID" ]; then
+            {
+              echo "APPLE_ID=$APPLE_ID"
+              echo "APPLE_PASSWORD=$APPLE_PASSWORD"
+              echo "APPLE_TEAM_ID=$APPLE_TEAM_ID"
+            } >> "$GITHUB_ENV"
+            mode="notarized"
+          else
+            echo "notarization credentials incomplete — signing without notarization"
+          fi
+          echo "MACOS_CODESIGN_MODE=$mode" >> "$GITHUB_ENV"
       - name: Build signed 0xdot desktop and updater artifact
         shell: bash
         env:
           RAKAZO_ALLOW_DEV_SECRETS: "1"
-          # Ad-hoc sign the macOS bundle: without a seal, LaunchServices
-          # silently refuses to open the shipped app even after the
-          # Gatekeeper bypass. A Developer ID replaces this once available.
-          APPLE_SIGNING_IDENTITY: "-"
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: pnpm --filter @rakazo/desktop-tauri exec cargo tauri build --target ${{ matrix.target }} --config tauri.release.json
+      # Guard rail: assert the bundle is sealed, carries the Developer ID
+      # team with hardened runtime, and — once notarized — passes Gatekeeper
+      # with a stapled ticket.
+      - name: Verify the macOS bundle signature
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          app="apps/desktop-tauri/src-tauri/target/${{ matrix.target }}/release/bundle/macos/0xdot.app"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          case "${MACOS_CODESIGN_MODE:-adhoc}" in
+            notarized)
+              sig="$(codesign -dv "$app" 2>&1 || true)"
+              echo "$sig"
+              echo "$sig" | grep -E "TeamIdentifier=${APPLE_TEAM_ID}"
+              echo "$sig" | grep -E 'flags=[0-9a-fx]+\(runtime\)'
+              spctl -a -vv -t exec "$app"
+              xcrun stapler validate "$app"
+              ;;
+            devid)
+              sig="$(codesign -dv "$app" 2>&1 || true)"
+              echo "$sig"
+              echo "$sig" | grep -E "TeamIdentifier=${APPLE_TEAM_ID:-[A-Z0-9]{10}}"
+              ;;
+            *)
+              codesign -dv "$app" 2>&1 | grep -E 'Signature=adhoc|Identifier='
+              ;;
+          esac
       - name: Upload artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
