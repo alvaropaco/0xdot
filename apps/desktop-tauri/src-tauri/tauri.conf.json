@@ -40,11 +40,19 @@
     "category": "Productivity",
     "shortDescription": "Persistent AI teammates",
     "longDescription": "0xdot is an open-source platform for persistent AI teammates and desktop automation.",
+    "icon": [
+      "icons/32x32.png",
+      "icons/64x64.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
     "macOS": {
       "minimumSystemVersion": "11.0"
     },
     "windows": {
-      "webviewInstallMode": "embedBootstrapper"
+      "webviewInstallMode": { "type": "embedBootstrapper" }
     }
   }
 }

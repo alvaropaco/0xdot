@@ -11,9 +11,9 @@ import { clientUpdates } from "./lib/client-update";
 import { reportCaughtReactError } from "./lib/monitoring";
 import { markAfterPaint, markOnce } from "./lib/performance";
 import { installPreloadRecovery } from "./lib/preload-recovery";
+import { installTauriDesktopBridge } from "./lib/tauri-desktop";
 import { applyUiAppearance, watchSystemAppearance } from "./lib/ui-appearance";
 import { resolveUiLocale } from "./lib/ui-locale";
-import { installTauriDesktopBridge } from "./lib/tauri-desktop";
 import { registerServiceWorker } from "./pwa/register";
 import "./styles.css";
 

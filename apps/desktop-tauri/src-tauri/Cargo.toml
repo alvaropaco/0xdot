@@ -14,6 +14,10 @@ tauri = { version = "2", features = [] }
 tauri-plugin-deep-link = "2.6.1"
 tauri-plugin-single-instance = { version = "2.5.3", features = ["deep-link"] }
 tauri-plugin-updater = "2"
+# rust-ini 0.21.2+ adds non-defaulted ParseOption fields that break
+# tauri-plugin-deep-link 2.6.x's Linux desktop-file parsing; hold the
+# pre-breakage patch until a stable plugin release catches up.
+rust-ini = "=0.21.1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 url = "2"

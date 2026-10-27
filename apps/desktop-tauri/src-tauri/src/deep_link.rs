@@ -8,12 +8,10 @@ pub fn setup(app: &AppHandle) -> Result<(), String> {
     }
 
     let handle = app.clone();
-    app.deep_link()
-        .on_open_url(move |event| {
-            let urls: Vec<String> = event.urls().iter().map(ToString::to_string).collect();
-            let _ = handle.emit("xdot://deep-link", &urls);
-        })
-        .map_err(|e| e.to_string())?;
+    let _listener = app.deep_link().on_open_url(move |event| {
+        let urls: Vec<String> = event.urls().iter().map(ToString::to_string).collect();
+        let _ = handle.emit("xdot://deep-link", &urls);
+    });
 
     #[cfg(any(windows, target_os = "linux"))]
     app.deep_link().register_all().map_err(|e| e.to_string())?;

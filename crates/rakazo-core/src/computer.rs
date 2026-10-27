@@ -170,10 +170,12 @@ impl ProcessRuntime {
         };
         out_thread
             .join()
-            .map_err(|_| ComputerRuntimeError::Execution("stdout reader panicked".into()))?;
+            .map_err(|_| ComputerRuntimeError::Execution("stdout reader panicked".into()))?
+            .map_err(|e| ComputerRuntimeError::Execution(format!("stdout read failed: {e}")))?;
         err_thread
             .join()
-            .map_err(|_| ComputerRuntimeError::Execution("stderr reader panicked".into()))?;
+            .map_err(|_| ComputerRuntimeError::Execution("stderr reader panicked".into()))?
+            .map_err(|e| ComputerRuntimeError::Execution(format!("stderr read failed: {e}")))?;
         let stdout = stdout_buffer
             .lock()
             .map_err(|_| ComputerRuntimeError::Execution("stdout buffer poisoned".into()))?
