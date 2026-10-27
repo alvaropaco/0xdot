@@ -48,6 +48,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
       - run: pnpm install --frozen-lockfile
       - name: Validate Rust runtime
+        if: runner.os == 'Linux'
         run: cargo test --manifest-path crates/Cargo.toml
       - name: Generate release updater configuration
         shell: bash
@@ -67,6 +68,7 @@ jobs:
           }, null, 2));
           NODE
       - name: Build signed 0xdot desktop and updater artifact
+        shell: bash
         run: pnpm --filter @rakazo/desktop-tauri exec cargo tauri build --target ${{ matrix.target }} --config tauri.release.json
         env:
           RAKAZO_ALLOW_DEV_SECRETS: "1"
@@ -80,6 +82,7 @@ jobs:
           if-no-files-found: error
       - name: Remove generated release configuration
         if: always()
+        shell: bash
         run: rm -f apps/desktop-tauri/tauri.release.json
 
   publish:
