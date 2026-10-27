@@ -27,7 +27,8 @@ done
 # and plaintext is streamed straight into age, so it never touches disk.
 age_args=()
 read -r -a recipients <<<"${RAKAZO_BACKUP_AGE_RECIPIENTS:-}"
-for recipient in "${recipients[@]}"; do age_args+=(-r "${recipient}"); done
+# The guard keeps the expansion valid under `set -u` on bash versions older than 4.4.
+for recipient in ${recipients[@]+"${recipients[@]}"}; do age_args+=(-r "${recipient}"); done
 RECIPIENTS_FILE="${RAKAZO_BACKUP_AGE_RECIPIENTS_FILE:-}"
 if [[ -n "${RECIPIENTS_FILE}" ]]; then
   [[ -r "${RECIPIENTS_FILE}" && -s "${RECIPIENTS_FILE}" ]] || {

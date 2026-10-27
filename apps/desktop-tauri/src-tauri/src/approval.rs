@@ -1,5 +1,4 @@
 use rakazo_core::{ApprovalDecision, ApprovalGate, ExecutorError, TaskId, ToolCall};
-use serde::Serialize;
 use std::{collections::HashMap, sync::{Arc, Condvar, Mutex}, time::Duration};
 
 const APPROVAL_TIMEOUT: Duration = Duration::from_secs(5 * 60);
@@ -7,13 +6,6 @@ const APPROVAL_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 #[derive(Clone, Default)]
 pub struct ApprovalBroker {
     inner: Arc<(Mutex<HashMap<TaskId, Option<ApprovalDecision>>>, Condvar)>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct PendingApproval {
-    #[serde(rename = "taskId")]
-    pub task_id: String,
-    pub tool: String,
 }
 
 impl ApprovalBroker {
@@ -56,10 +48,6 @@ impl ApprovalGate for ApprovalBroker {
             }
         }
     }
-}
-
-pub fn describe_pending(broker: &ApprovalBroker, task_id: TaskId, tool: String) -> Option<PendingApproval> {
-    broker.pending().into_iter().find(|id| *id == task_id).map(|id| PendingApproval { task_id: id.to_string(), tool })
 }
 
 #[cfg(test)]

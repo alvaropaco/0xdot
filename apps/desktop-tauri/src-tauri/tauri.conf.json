@@ -44,7 +44,7 @@
       "minimumSystemVersion": "11.0"
     },
     "windows": {
-      "webviewInstallMode": "embedBootstrapper"
+      "webviewInstallMode": { "type": "embedBootstrapper" }
     }
   }
 }

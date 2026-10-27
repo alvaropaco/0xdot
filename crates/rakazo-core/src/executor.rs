@@ -195,7 +195,6 @@ mod tests {
     use super::*;
     use crate::{Agent, ModelError, ModelResponse, ModelUsage, Task, ToolRisk};
     use std::sync::{Arc, Mutex};
-    use uuid::Uuid;
 
     struct FakeProvider {
         calls: Arc<Mutex<usize>>,

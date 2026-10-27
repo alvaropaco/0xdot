@@ -1,4 +1,8 @@
-import type { RakazoDesktop, RakazoDesktopOAuthCallback, DesktopUpdateState } from "@rakazo/contracts";
+import type {
+  DesktopUpdateState,
+  RakazoDesktop,
+  RakazoDesktopOAuthCallback,
+} from "@rakazo/contracts";
 
 interface TauriGlobal {
   core: {
@@ -43,7 +47,11 @@ export function installTauriDesktopBridge(): boolean {
   if (window.rakazoDesktop) return true;
 
   const desktop: RakazoDesktop = {
-    platform: navigator.platform.toLowerCase().includes("mac") ? "darwin" : navigator.platform.toLowerCase().includes("win") ? "win32" : "linux",
+    platform: navigator.platform.toLowerCase().includes("mac")
+      ? "darwin"
+      : navigator.platform.toLowerCase().includes("win")
+        ? "win32"
+        : "linux",
     window: {
       close: () => invoke("window_close"),
       minimize: () => invoke("window_minimize"),
@@ -86,7 +94,9 @@ export function installTauriDesktopBridge(): boolean {
       onCallback: (listener) => {
         let unsubscribe: (() => void) | undefined;
         void api.event
-          .listen<RakazoDesktopOAuthCallback>("desktop://oauth-callback", (event) => listener(event.payload))
+          .listen<RakazoDesktopOAuthCallback>("desktop://oauth-callback", (event) =>
+            listener(event.payload),
+          )
           .then((stop) => {
             unsubscribe = stop;
           });

@@ -1,7 +1,6 @@
-use core_foundation::base::TCFType;
-use core_foundation::data::CFData;
 use core_graphics::display::CGDisplay;
 use core_graphics::event::{CGEvent, CGEventTapLocation, CGEventType, CGMouseButton};
+use core_graphics::event_source::{CGEventSource, CGEventSourceStateID};
 use core_graphics::geometry::CGPoint;
 use rakazo_core::{
     ComputerBackend, KeyboardAction, MouseAction, MouseButton, ScreenCapture, WindowInfo,
@@ -41,12 +40,7 @@ impl MacOsBackend {
             )
         })?;
 
-        let provider = image.data_provider().ok_or_else(|| {
-            MacOsHostError::ScreenCapture("screen image has no data provider".into())
-        })?;
-        let data: CFData = provider.data().ok_or_else(|| {
-            MacOsHostError::ScreenCapture("screen image provider returned no data".into())
-        })?;
+        let data = image.data();
 
         Ok(ScreenCapture {
             width: image.width() as u32,
@@ -76,8 +70,9 @@ impl MacOsBackend {
             MouseAction::Scroll { .. } => unreachable!(),
         };
 
-        let event = CGEvent::new_mouse_event(None, event_type, CGPoint::new(x, y), button)
-            .ok_or_else(|| {
+        let source = hid_source()?;
+        let event = CGEvent::new_mouse_event(source, event_type, CGPoint::new(x, y), button)
+            .map_err(|_| {
                 MacOsHostError::Accessibility(
                     "CGEvent could not be created; grant Accessibility permission".into(),
                 )
@@ -89,9 +84,10 @@ impl MacOsBackend {
                 CGMouseButton::Left => CGEventType::LeftMouseUp,
                 CGMouseButton::Right => CGEventType::RightMouseUp,
                 CGMouseButton::Center => CGEventType::OtherMouseUp,
-                _ => CGEventType::LeftMouseUp,
             };
-            if let Some(up) = CGEvent::new_mouse_event(None, up_type, CGPoint::new(x, y), button) {
+            if let Ok(up) =
+                CGEvent::new_mouse_event(hid_source()?, up_type, CGPoint::new(x, y), button)
+            {
                 up.post(CGEventTapLocation::HID);
             }
         }
@@ -107,16 +103,17 @@ impl MacOsBackend {
                     ));
                 }
                 for ch in text.encode_utf16() {
-                    let event = CGEvent::new_keyboard_event(None, 0, true).ok_or_else(|| {
-                        MacOsHostError::Accessibility("CGEvent could not be created".into())
-                    })?;
-                    let unit = [ch];
-                    event.keyboard_set_unicode_string(1, unit.as_ptr());
+                    let event =
+                        CGEvent::new_keyboard_event(hid_source()?, 0, true).map_err(|_| {
+                            MacOsHostError::Accessibility("CGEvent could not be created".into())
+                        })?;
+                    event.set_string_from_utf16_unchecked(&[ch]);
                     event.post(CGEventTapLocation::HID);
-                    let up = CGEvent::new_keyboard_event(None, 0, false).ok_or_else(|| {
-                        MacOsHostError::Accessibility("CGEvent could not be created".into())
-                    })?;
-                    up.keyboard_set_unicode_string(1, unit.as_ptr());
+                    let up =
+                        CGEvent::new_keyboard_event(hid_source()?, 0, false).map_err(|_| {
+                            MacOsHostError::Accessibility("CGEvent could not be created".into())
+                        })?;
+                    up.set_string_from_utf16_unchecked(&[ch]);
                     up.post(CGEventTapLocation::HID);
                 }
             }
@@ -242,13 +239,21 @@ impl ComputerBackend for MacOsBackend {
     }
 }
 
+fn hid_source() -> Result<CGEventSource, MacOsHostError> {
+    CGEventSource::new(CGEventSourceStateID::HIDSystemState).map_err(|_| {
+        MacOsHostError::Accessibility(
+            "CGEventSource could not be created; grant Accessibility permission".into(),
+        )
+    })
+}
+
 fn post_key(code: u16) -> Result<(), MacOsHostError> {
     post_key_state(code, true)?;
     post_key_state(code, false)
 }
 
 fn post_key_state(code: u16, down: bool) -> Result<(), MacOsHostError> {
-    let event = CGEvent::new_keyboard_event(None, code, down).ok_or_else(|| {
+    let event = CGEvent::new_keyboard_event(hid_source()?, code, down).map_err(|_| {
         MacOsHostError::Accessibility(
             "CGEvent could not be created; grant Accessibility permission".into(),
         )

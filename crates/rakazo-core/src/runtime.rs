@@ -20,7 +20,7 @@ pub enum RuntimeError {
     StatePoisoned,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RuntimeSnapshot {
     pub agents: Vec<Agent>,
     pub tasks: Vec<Task>,
@@ -72,7 +72,6 @@ impl AgentRuntime {
             .get_mut(&id)
             .ok_or(RuntimeError::AgentNotFound(id))?;
         agent.status = status;
-        let status = agent.status;
         drop(state);
         let _ = self.events.publish(match status {
             AgentStatus::Running => Event::AgentStarted { agent_id: id },

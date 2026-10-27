@@ -46,3 +46,9 @@ apps/web/src/locales/**/*.mjs
 apps/web/src/locales/**/*.js
 apps/web/scripts/msgids.json
 playwright-report-www
+
+# Rust workspace build artifacts
+crates/target
+crates/Cargo.lock
+apps/desktop-tauri/src-tauri/target
+apps/desktop-tauri/src-tauri/Cargo.lock
