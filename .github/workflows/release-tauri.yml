@@ -69,11 +69,15 @@ jobs:
           NODE
       - name: Build signed 0xdot desktop and updater artifact
         shell: bash
-        run: pnpm --filter @rakazo/desktop-tauri exec cargo tauri build --target ${{ matrix.target }} --config tauri.release.json
         env:
           RAKAZO_ALLOW_DEV_SECRETS: "1"
+          # Ad-hoc sign the macOS bundle: without a seal, LaunchServices
+          # silently refuses to open the shipped app even after the
+          # Gatekeeper bypass. A Developer ID replaces this once available.
+          APPLE_SIGNING_IDENTITY: "-"
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: pnpm --filter @rakazo/desktop-tauri exec cargo tauri build --target ${{ matrix.target }} --config tauri.release.json
       - name: Upload artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
