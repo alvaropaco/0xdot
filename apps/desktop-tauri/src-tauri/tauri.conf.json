@@ -32,6 +32,10 @@
       "desktop": {
         "schemes": ["xdot"]
       }
+    },
+    "updater": {
+      "pubkey": "",
+      "endpoints": []
     }
   },
   "bundle": {

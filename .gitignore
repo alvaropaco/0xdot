@@ -52,3 +52,4 @@ crates/target
 crates/Cargo.lock
 apps/desktop-tauri/src-tauri/target
 apps/desktop-tauri/src-tauri/Cargo.lock
+apps/desktop-tauri/src-tauri/gen
