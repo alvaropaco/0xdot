@@ -5,7 +5,7 @@ import path from "node:path";
 import { ComposioConnector, FakeComposioClient } from "@rakazo/adapters";
 import { describe, expect, it } from "vitest";
 import { discardBotIntroRun } from "./discard-bot-intro.js";
-import { sessionCookieHeader } from "./index.js";
+import { OWNER_COOKIE } from "./index.js";
 import { startModelEmulator } from "./model-emulator.js";
 import { asSystem } from "./system-db.js";
 
@@ -78,17 +78,7 @@ describe.skipIf(!databaseAvailable)("offline Pi product journey", () => {
         encryptionKey: "offline-model-fixture-encryption-key",
       });
       stop = handles.stop;
-      const signup = await handles.app.request("/api/auth/sign-up/email", {
-        method: "POST",
-        headers: { "content-type": "application/json", origin: fixtureOrigin },
-        body: JSON.stringify({
-          email: `offline-pi-${randomUUID()}@rakazo.test`,
-          password: "password12",
-          name: "Offline fixture",
-        }),
-      });
-      expect(signup.status).toBeLessThan(400);
-      const cookie = sessionCookieHeader(signup);
+      const cookie = OWNER_COOKIE;
       await rpc(handles.app, cookie, "models/connect", {
         provider: model.model.provider,
         modelId: model.model.id,

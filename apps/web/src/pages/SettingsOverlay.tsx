@@ -14,7 +14,6 @@ import {
   ChevronRight,
   CloudDownload,
   Cpu,
-  CreditCard,
   Gauge,
   Monitor,
   Settings,
@@ -30,15 +29,14 @@ import { desktopBridge } from "../lib/desktop";
 import { rpcForSpace } from "../lib/rpc";
 import { SpaceRpcProvider } from "../lib/space-rpc";
 import { errorText } from "../lib/user-error";
+import { MemorySettingsOverlay } from "./MemorySettingsOverlay";
+import { ModelSettingsOverlay } from "./ModelSettingsOverlay";
 import {
   ComputerSettingsPanel,
   GeneralSettingsPanels,
   UpdatesSettingsPanel,
   UsageSettingsPanel,
-} from "./AccountSettingsOverlay";
-import { BillingSettingsPanel } from "./BillingSettingsPanel";
-import { MemorySettingsOverlay } from "./MemorySettingsOverlay";
-import { ModelSettingsOverlay } from "./ModelSettingsOverlay";
+} from "./SettingsPanels";
 import type { SettingsSection } from "./shell-overlay";
 import { VoiceSettingsOverlay } from "./VoiceSettingsOverlay";
 
@@ -61,16 +59,12 @@ export function SettingsOverlay({
   spaces = [],
   currentSpaceId,
   onSpaceChange,
-  email,
-  name,
   usage,
   onUsageOpen,
   section: requestedSection,
   onSectionChange,
-  onNameSaved,
   timezone,
   onTimezoneChange,
-  billingEnabled = false,
   sandboxProvider,
   onSandboxProviderChange,
   messagingEnabled = false,
@@ -86,8 +80,6 @@ export function SettingsOverlay({
   /** The space the app is showing; its memory config comes from the shell. */
   currentSpaceId?: string | null;
   onSpaceChange?: (spaceId: string) => void;
-  email?: string | null;
-  name: string;
   usage?: {
     runs: number;
     inputTokens: number | null;
@@ -97,10 +89,8 @@ export function SettingsOverlay({
   onUsageOpen: () => void;
   section: SettingsSection;
   onSectionChange: (section: SettingsSection) => void;
-  onNameSaved?: () => Promise<void>;
   timezone: string | null;
   onTimezoneChange: (timezone: string) => Promise<void>;
-  billingEnabled?: boolean;
   sandboxProvider?: string | null;
   onSandboxProviderChange?: (sandboxProvider: string) => void;
   messagingEnabled?: boolean;
@@ -121,10 +111,9 @@ export function SettingsOverlay({
   const recoveryHoldTimer = useRef<number | undefined>(undefined);
   const showComputer = keepComputerRecovery || computersAreUnavailable(sandboxProvider);
   const showUpdates = Boolean(desktopBridge()?.update);
-  // A section that isn't available yet (billing before its flag loads) shows General until it is.
+  // A section that isn't available yet (computer before its provider loads) shows General until it is.
   const section =
     (requestedSection === "computer" && !showComputer) ||
-    (requestedSection === "billing" && !billingEnabled) ||
     (requestedSection === "updates" && !showUpdates)
       ? "general"
       : requestedSection;
@@ -199,7 +188,6 @@ export function SettingsOverlay({
     { id: "confirmations", label: t`Confirmations`, icon: ShieldCheck },
     { id: "usage", label: t`Usage`, icon: Gauge },
     ...(showComputer ? [{ id: "computer" as const, label: t`Computer`, icon: Monitor }] : []),
-    ...(billingEnabled ? [{ id: "billing" as const, label: t`Billing`, icon: CreditCard }] : []),
     ...(showUpdates ? [{ id: "updates" as const, label: t`Updates`, icon: CloudDownload }] : []),
   ];
 
@@ -231,7 +219,7 @@ export function SettingsOverlay({
       nav.removeEventListener("scroll", measure);
       observer?.disconnect();
     };
-  }, [section, showComputer, billingEnabled, showUpdates, i18n.locale]);
+  }, [section, showComputer, showUpdates, i18n.locale]);
 
   function scrollSections(direction: number) {
     const nav = navRef.current;
@@ -392,9 +380,6 @@ export function SettingsOverlay({
               >
                 {section === "general" ? (
                   <GeneralSettingsPanels
-                    email={email}
-                    name={name}
-                    onNameSaved={onNameSaved}
                     timezone={timezone}
                     onTimezoneChange={onTimezoneChange}
                     messagingEnabled={messagingEnabled}
@@ -417,7 +402,6 @@ export function SettingsOverlay({
                     onRecoveryDismissed={releaseComputerRecovery}
                   />
                 ) : null}
-                {section === "billing" && billingEnabled ? <BillingSettingsPanel /> : null}
                 {section === "updates" && showUpdates ? <UpdatesSettingsPanel /> : null}
                 {section === "models" ? (
                   <ModelSettingsOverlay embedded onClose={requestClose} />

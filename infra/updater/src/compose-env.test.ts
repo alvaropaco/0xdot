@@ -23,7 +23,6 @@ const composeDir = path.join(repoRoot, "infra/compose");
 const SHARED_SOURCES = [
   "packages/adapter-kit/src",
   "packages/adapters/src",
-  "packages/auth/src",
   "packages/contracts/src",
   "packages/core/src",
   "packages/db/src",
@@ -39,12 +38,9 @@ const SOURCES = {
 /** Read by code but never passed to the api or worker containers, with the reason. */
 const NOT_PASSED: Record<string, string> = {
   VITEST: "set by the test runner",
-  OWNER_EMAIL: "bootstrap-owner CLI input, passed on its own command line",
-  OWNER_PASSWORD: "bootstrap-owner CLI input, passed on its own command line",
   PM2_HOME: "restart-supervisor detection for PM2 hosts; Compose restarts containers",
   INVOCATION_ID: "restart-supervisor detection for systemd hosts; Compose restarts containers",
   RAKAZO_ALLOW_DEV_SECRETS: "development-only escape hatch for placeholder secrets",
-  EMAIL_EMULATOR: "ignored when NODE_ENV=production",
   GIT_SHA: "baked into the image at build time; a pass-through entry would unset it",
   SHELL: "host shell for the desktop computer, which only the Electron app runs",
   CLOUDFLARE_ACCOUNT_ID: "written into Pi's environment from stored gateway settings",
@@ -56,11 +52,10 @@ const NOT_PASSED: Record<string, string> = {
 };
 
 /**
- * Shared-package reads the worker must not receive. Only the API signs sessions and talks to
- * the identity provider, so the worker resolves no auth secret. Only the API's start command
- * migrates, so the worker never holds the owner database login.
+ * Shared-package reads the worker must not receive. Only the API's start command migrates,
+ * so the worker never holds the owner database login.
  */
-const WORKER_DENIED = new Set(["BETTER_AUTH_SECRET", "DATABASE_MIGRATION_URL"]);
+const WORKER_DENIED = new Set(["DATABASE_MIGRATION_URL"]);
 
 /** Reads a source scan cannot see: names held in constants or read by third-party SDKs. */
 const INDIRECT = {
@@ -184,7 +179,7 @@ describe("api and worker environment allowlists", () => {
       expect(api).toContain(key);
       expect(worker).toContain(key);
     }
-    for (const key of ["BETTER_AUTH_SECRET", "OIDC_CLIENT_SECRET", "SCREEN_PROXY_SECRET"]) {
+    for (const key of ["SCREEN_PROXY_SECRET"]) {
       expect(api).toContain(key);
       expect(worker).not.toContain(key);
     }
@@ -215,14 +210,7 @@ describe("api and worker environment allowlists", () => {
     "%s keeps auth and database superuser secrets out of the worker",
     (_name, files) => {
       const worker = stackEnvironment(files, "worker");
-      for (const key of [
-        "BETTER_AUTH_SECRET",
-        "OIDC_CLIENT_SECRET",
-        "SCREEN_PROXY_SECRET",
-        "RAKAZO_UPDATER_TOKEN",
-        "STRIPE_SECRET_KEY",
-        "POSTGRES_PASSWORD",
-      ]) {
+      for (const key of ["SCREEN_PROXY_SECRET", "RAKAZO_UPDATER_TOKEN", "POSTGRES_PASSWORD"]) {
         expect(worker).not.toHaveProperty(key);
       }
       expect(stackEnvironment(files, "api")).not.toHaveProperty("RAKAZO_UPDATER_TOKEN");

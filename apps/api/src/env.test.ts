@@ -141,7 +141,7 @@ describe("loadEnv", () => {
         DATABASE_URL: base.DATABASE_URL,
         NODE_ENV: "production",
       }),
-    ).toThrow(/BETTER_AUTH_SECRET/);
+    ).toThrow(/ENCRYPTION_KEY/);
   });
 
   it("throws when production uses placeholder secrets", () => {
@@ -149,25 +149,22 @@ describe("loadEnv", () => {
       loadEnv({
         DATABASE_URL: base.DATABASE_URL,
         NODE_ENV: "production",
-        BETTER_AUTH_SECRET: "dev-secret-change-me-please-32chars",
-        ENCRYPTION_KEY: "real-encryption-key-value",
+        ENCRYPTION_KEY: "dev-encryption-key",
         SANDBOX_SUPERVISOR_TOKEN: "real-supervisor-token-with-enough-length",
         SCREEN_PROXY_SECRET: "real-screen-proxy-secret-with-enough-length",
       }),
-    ).toThrow(/BETTER_AUTH_SECRET/);
+    ).toThrow(/ENCRYPTION_KEY/);
   });
 
   it("loads real secrets in production", () => {
     const env = loadEnv({
       DATABASE_URL: base.DATABASE_URL,
       NODE_ENV: "production",
-      BETTER_AUTH_SECRET: "prod-auth-secret-with-enough-length",
       ENCRYPTION_KEY: "prod-encryption-key-with-enough-length",
       SCREEN_PROXY_SECRET: "prod-screen-proxy-secret-with-enough-length",
       SANDBOX_PROVIDER: "e2b",
       API_HOST: "0.0.0.0",
     });
-    expect(env.authSecret).toBe("prod-auth-secret-with-enough-length");
     expect(env.encryptionKey).toBe("prod-encryption-key-with-enough-length");
     expect(env.sandboxSupervisorToken).toBeUndefined();
     expect(env.screenProxySecret).toBe("prod-screen-proxy-secret-with-enough-length");
@@ -178,7 +175,6 @@ describe("loadEnv", () => {
     const production = {
       DATABASE_URL: base.DATABASE_URL,
       NODE_ENV: "production",
-      BETTER_AUTH_SECRET: "prod-auth-secret-with-enough-length",
       ENCRYPTION_KEY: "prod-encryption-key-with-enough-length",
       SCREEN_PROXY_SECRET: "prod-screen-proxy-secret-with-enough-length",
       SANDBOX_PROVIDER: "e2b",
@@ -243,33 +239,6 @@ describe("loadEnv", () => {
     );
   });
 
-  it("loads SMTP configuration and keeps the email emulator out of production", () => {
-    expect(
-      loadEnv({
-        ...base,
-        SMTP_URL: " smtps://user:secret@smtp.example.test:465 ",
-        EMAIL_FROM: " Rakazo <no-reply@example.test> ",
-        EMAIL_EMULATOR: "true",
-      }),
-    ).toMatchObject({
-      smtpUrl: "smtps://user:secret@smtp.example.test:465",
-      emailFrom: "Rakazo <no-reply@example.test>",
-      emailEmulator: true,
-    });
-    expect(
-      loadEnv({
-        ...base,
-        NODE_ENV: "production",
-        BETTER_AUTH_SECRET: "prod-auth-secret-with-enough-length",
-        ENCRYPTION_KEY: "prod-encryption-key-with-enough-length",
-        SCREEN_PROXY_SECRET: "prod-screen-proxy-secret-with-enough-length",
-        SANDBOX_PROVIDER: "none",
-        EMAIL_EMULATOR: "true",
-      }).emailEmulator,
-    ).toBe(false);
-    expect(loadEnv({ ...base, NODE_ENV: "development" }).nodeEnv).toBe("development");
-  });
-
   it("defaults the remote MCP private-endpoint escape to off", () => {
     expect(loadEnv(base).mcpAllowPrivateEndpoint).toBe(false);
     expect(loadEnv({ ...base, MCP_ALLOW_PRIVATE_ENDPOINT: "true" }).mcpAllowPrivateEndpoint).toBe(
@@ -278,51 +247,5 @@ describe("loadEnv", () => {
     expect(loadEnv({ ...base, MCP_ALLOW_PRIVATE_ENDPOINT: "1" }).mcpAllowPrivateEndpoint).toBe(
       false,
     );
-  });
-});
-
-describe("OIDC environment", () => {
-  const oidc = {
-    OIDC_ISSUER: "https://identity.example.test",
-    OIDC_CLIENT_ID: "fake-client",
-    OIDC_CLIENT_SECRET: "fake-secret",
-  };
-  it("requires all credentials and an HTTPS issuer", () => {
-    for (const [key, value] of Object.entries(oidc))
-      expect(() => loadEnv({ ...base, [key]: value })).toThrow(/configured together/);
-    expect(() =>
-      loadEnv({ ...base, ...oidc, OIDC_ISSUER: "http://identity.example.test" }),
-    ).toThrow(/HTTPS/);
-  });
-  it.each(["identity.example.test", "/issuer", "https://"])(
-    "reports invalid issuer %s as a configuration error",
-    (issuer) => {
-      expect(() => loadEnv({ ...base, ...oidc, OIDC_ISSUER: issuer })).toThrow(
-        "OIDC_ISSUER must be an HTTPS issuer URL",
-      );
-    },
-  );
-  it("guards password-only lockout without contacting discovery", () => {
-    expect(() => loadEnv({ ...base, AUTH_PASSWORD_ENABLED: "false" })).toThrow(/requires OIDC/);
-    expect(loadEnv({ ...base, ...oidc, AUTH_PASSWORD_ENABLED: "false" }).passwordAuth).toBe(false);
-  });
-  it("leaves the breached password check off unless explicitly enabled", () => {
-    expect(loadEnv(base).breachedPasswordCheck).toBe(false);
-    expect(
-      loadEnv({ ...base, AUTH_BREACHED_PASSWORD_CHECK_ENABLED: "true" }).breachedPasswordCheck,
-    ).toBe(true);
-    expect(() => loadEnv({ ...base, AUTH_BREACHED_PASSWORD_CHECK_ENABLED: "yes" })).toThrow(
-      "AUTH_BREACHED_PASSWORD_CHECK_ENABLED must be true or false",
-    );
-  });
-  it("defaults to SSO with no policy bypass", () => {
-    expect(loadEnv({ ...base, ...oidc }).oidc).toMatchObject({
-      name: "SSO",
-      allowSignupBypass: false,
-      scopes: ["openid", "email", "profile"],
-    });
-    expect(
-      loadEnv({ ...base, ...oidc, OIDC_ALLOW_SIGNUP_BYPASS: "true" }).oidc?.allowSignupBypass,
-    ).toBe(true);
   });
 });

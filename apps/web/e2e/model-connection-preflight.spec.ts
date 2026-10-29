@@ -13,6 +13,7 @@ test("onboarding preflight stays on the connection being tested", async ({ page 
 
   const stamp = Date.now();
   await signup(page, `preflight-${stamp}@rakazo.test`, "password12", `Preflight ${stamp}`);
+  await page.goto("/onboarding");
   await expect(page.getByRole("heading", { name: "Connect a model" })).toBeVisible({
     timeout: 20_000,
   });

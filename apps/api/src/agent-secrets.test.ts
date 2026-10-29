@@ -5,8 +5,6 @@ import { deleteAgentSecret, listAgentSecrets, putAgentSecret } from "./agent-sec
 const actor = {
   userId: "user-1",
   spaceId: "space-1",
-  email: "owner@example.com",
-  isDeploymentOwner: true,
 };
 
 describe("agent secrets", () => {

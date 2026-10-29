@@ -1,6 +1,6 @@
 appId: com.rakazo.app
 ---
-# Reuse an already-open server sheet, or open it from authentication.
+# Fill the already-open server sheet (opened from Settings > Server).
 - runFlow:
     when:
       notVisible:

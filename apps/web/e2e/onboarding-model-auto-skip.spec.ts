@@ -34,6 +34,7 @@ test("onboarding skips model connect when a default model is already available",
     "password12",
     `Model auto skip ${stamp}`,
   );
+  await page.goto("/onboarding");
 
   await expect(page.getByRole("heading", { name: "Connect a model" })).toBeHidden();
   await expect(page.getByRole("heading", { name: "Server integrations" })).toBeHidden();

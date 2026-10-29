@@ -43,8 +43,6 @@ it.each([false, true])(
       View: ({ children }: { children?: ReactNode }) => <div>{children}</div>,
       Text: ({ children }: { children?: ReactNode }) => <span>{children}</span>,
       ready: true,
-      hasSession: true,
-      initials: "A",
       activityMode: false,
       toggleActivityMode: action,
       runCreateAction: action,
@@ -87,7 +85,7 @@ it.each([false, true])(
         if (!wide) {
           expect(
             options.unstable_headerLeftItems().map((item: { label: string }) => item.label),
-          ).toEqual(["Account"]);
+          ).toEqual(["Settings"]);
           expect(
             options.unstable_headerRightItems().map((item: { label: string }) => item.label),
           ).toEqual(["Activity", "Search", "Create"]);

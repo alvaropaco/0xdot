@@ -10,11 +10,6 @@ import type {
   AutoReviewResult,
   BackgroundJob,
   BackgroundJobHandlers,
-  BillingCheckoutRequest,
-  BillingCreditCheckoutRequest,
-  BillingCreditPurchase,
-  BillingPrice,
-  BillingSubscriptionSnapshot,
   BrowserActRequest,
   BrowserActResult,
   BrowserCapabilities,
@@ -76,7 +71,6 @@ import type {
   SnapshotRef,
   SpeechClip,
   TerminalRequest,
-  TransactionalEmail,
   VoiceCapabilities,
   VoiceInfo,
   VoiceSynthesizeRequest,
@@ -410,36 +404,10 @@ export interface NotificationProvider {
   send(message: NotificationMessage, context: AdapterContext): Promise<void>;
 }
 
-/** Outbound account and security email. Product code owns content; adapters own delivery. */
-export interface TransactionalEmailProvider {
-  describe(): AdapterDescriptor<{ transactional: boolean }>;
-  send(message: TransactionalEmail): Promise<void>;
-  /** Wait for accepted in-flight deliveries before a graceful shutdown completes. */
-  drain?(): Promise<void>;
-}
-
 /**
  * Seat-based subscription billing. Product code owns access rules; adapters own the
  * vendor API. Sync is pull-based: webhooks only say which customer changed.
  */
-export interface BillingProvider {
-  /** Optional prepaid model usage capabilities; product code owns the balance ledger. */
-  createCreditCheckout?(input: BillingCreditCheckoutRequest): Promise<{ url: string }>;
-  listCreditPurchases?(customerId: string): Promise<BillingCreditPurchase[]>;
-  setMonthlyCredits?(customerId: string, amountCents: number): Promise<void>;
-  describe(): AdapterDescriptor<{ trials: boolean; portal: boolean; modelCredits?: boolean }>;
-  getPrice(): Promise<BillingPrice>;
-  createCustomer(input: { email: string; organizationId: string }): Promise<{ customerId: string }>;
-  createCheckout(input: BillingCheckoutRequest): Promise<{ url: string }>;
-  createPortal(input: { customerId: string; returnUrl: string }): Promise<{ url: string }>;
-  /** Current subscription for the customer, preferring one that grants access. */
-  getCustomerSubscription(customerId: string): Promise<BillingSubscriptionSnapshot | null>;
-  /** Sets seats on the customer's subscription; a no-op when none can still take updates. */
-  updateSeats(customerId: string, seats: number): Promise<void>;
-  cancelCustomerSubscriptions(customerId: string): Promise<void>;
-  /** Verifies the signature. `null` means the request is not authentic. */
-  parseWebhook(rawBody: string, headers: Headers): { customerId: string } | "ignored" | null;
-}
 
 export interface ExecutionRunner {
   describe(): AdapterDescriptor<{ cloud: boolean; selfHosted: boolean; desktop: boolean }>;

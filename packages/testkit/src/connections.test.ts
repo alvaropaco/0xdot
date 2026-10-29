@@ -12,7 +12,7 @@ import {
 import { listSpaceBackupModels, replaceSpaceBackupModels, runAsSystem } from "@rakazo/db";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { createApp } from "../../../apps/api/src/app.ts";
-import { sessionCookieHeader } from "./index.js";
+import { OWNER_COOKIE } from "./index.js";
 import { asSystem } from "./system-db.js";
 
 type App = { request: (input: string, init?: RequestInit) => Promise<Response> };
@@ -690,17 +690,15 @@ async function connectRemote(composio: ComposioConnector, actor: Actor, provider
   );
 }
 
-async function signup(app: App, email: string, name: string) {
-  const response = await app.request("/api/auth/sign-up/email", {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      origin: "http://127.0.0.1:5173",
-    },
-    body: JSON.stringify({ email, password: "password12", name }),
-  });
-  if (!response.ok) throw new Error(`signup failed ${response.status}: ${await response.text()}`);
-  return sessionCookieHeader(response);
+/**
+ * There are no accounts: the API acts as its single deployment owner for every
+ * request, so sign-up is a no-op kept for call-site readability.
+ */
+async function signup(app: App, email: string, name: string): Promise<string> {
+  void app;
+  void email;
+  void name;
+  return OWNER_COOKIE;
 }
 
 async function rpc<T>(app: App, cookie: string, procedure: string, body: unknown = {}): Promise<T> {

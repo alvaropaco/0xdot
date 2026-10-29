@@ -3,12 +3,13 @@ import * as z from "zod";
 export const Id = z.string().min(1);
 export const IsoDate = z.string().datetime({ offset: true });
 
+/**
+ * The deployment's single implicit owner. There are no app accounts: the API
+ * seeds this identity at startup and every request acts as it.
+ */
 export const ActorSchema = z.object({
   userId: Id,
   spaceId: Id,
-  email: z.string().email(),
-  /** Deprecated wire field. App accounts have no deployment role; always false. */
-  isDeploymentOwner: z.boolean(),
 });
 export type Actor = z.infer<typeof ActorSchema>;
 

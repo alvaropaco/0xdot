@@ -20,14 +20,8 @@ export const DEFAULT_LIVE_NOTIFICATION_SETTINGS: LiveNotificationSettings = {
 
 type NativeNotifications = {
   getSettings(): Promise<LiveNotificationSettings>;
-  setSettings(
-    settings: LiveNotificationSettings,
-    endpoint: string,
-    token: string,
-    spaceId: string,
-  ): Promise<void>;
-  resume(endpoint: string, token: string, spaceId: string): Promise<void>;
-  stop(clearSession: boolean): Promise<void>;
+  setSettings(settings: LiveNotificationSettings, endpoint: string, spaceId: string): Promise<void>;
+  resume(endpoint: string, spaceId: string): Promise<void>;
   setOpenThread(botId: string | null, threadId: string | null): Promise<void>;
   openSettings(): Promise<void>;
   canPostPromotedNotifications(): Promise<boolean>;
@@ -93,7 +87,6 @@ export async function getLiveNotificationSettings(): Promise<LiveNotificationSet
 export async function setLiveNotificationSettings(
   settings: LiveNotificationSettings,
   endpoint: string,
-  token: string,
   spaceId: string,
 ): Promise<void> {
   if (!nativeNotifications) return;
@@ -106,22 +99,14 @@ export async function setLiveNotificationSettings(
     const granted = existing.granted || (await Notifications.requestPermissionsAsync()).granted;
     if (!granted) throw new Error(t("Android blocked notifications."));
   }
-  await nativeNotifications.setSettings(settings, parsed.url, token, spaceId);
+  await nativeNotifications.setSettings(settings, parsed.url, spaceId);
 }
 
-export async function resumeLiveNotifications(
-  endpoint: string,
-  token: string,
-  spaceId: string,
-): Promise<void> {
-  if (!nativeNotifications || !token) return;
+export async function resumeLiveNotifications(endpoint: string, spaceId: string): Promise<void> {
+  if (!nativeNotifications) return;
   const parsed = normalizeApiBase(endpoint);
   if (!parsed.ok || apiBaseWarning(parsed.url)) return;
-  await nativeNotifications.resume(parsed.url, token, spaceId);
-}
-
-export async function stopLiveNotifications(clearSession = false): Promise<void> {
-  await nativeNotifications?.stop(clearSession);
+  await nativeNotifications.resume(parsed.url, spaceId);
 }
 
 export async function setOpenNotificationThread(
@@ -173,12 +158,11 @@ export async function dismissThreadNotifications(target: NotificationThreadTarge
 /** Brings this device in line after a chat's notifications were turned on or off. */
 export async function afterChatNotifyChange(
   endpoint: string,
-  token: string,
   spaceId: string,
   change: { threadId?: string; notify: boolean },
 ): Promise<void> {
   // Android's live status re-reads which chats notify.
-  await resumeLiveNotifications(endpoint, token, spaceId).catch(() => undefined);
+  await resumeLiveNotifications(endpoint, spaceId).catch(() => undefined);
   if (!change.notify && change.threadId) {
     await dismissThreadNotifications({ threadId: change.threadId }).catch(() => undefined);
   }

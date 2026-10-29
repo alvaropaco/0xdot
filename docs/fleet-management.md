@@ -68,7 +68,7 @@ the bot has to ask again.
 - Read, request or change secrets. Instructions, profile fields and routine names and prompts that
   contain a credential are refused.
 - Edit a bot it did not create. It can only change a section or pin on any of your bots.
-- Move a bot between spaces. Every tool works inside the space and account of the run.
+- Move a bot between spaces. Every tool works inside the space of the run.
 - Remove itself from the group it is running in.
 
 ## Limits

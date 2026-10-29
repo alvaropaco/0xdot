@@ -71,9 +71,8 @@ describe("settings links", () => {
     // Picker sessions only exist after an in-sheet push, never from a link.
     expect(isSettingsLink("rakazo:///model-picker")).toBe(false);
     expect(isSettingsLink("rakazo://voice")).toBe(true);
-    expect(isSettingsLink("rakazo:///account?focus=usage")).toBe(true);
+    expect(isSettingsLink("rakazo:///settings?focus=usage")).toBe(true);
     expect(isSettingsLink("rakazo://integrations/")).toBe(true);
-    expect(isSettingsLink("/change-password")).toBe(true);
     expect(isSettingsLink("rakazo:///thread?botId=bot-1")).toBe(false);
     expect(isSettingsLink("rakazo://group-thread?groupId=group-1")).toBe(false);
     expect(isSettingsLink("/new")).toBe(false);
@@ -81,6 +80,7 @@ describe("settings links", () => {
     expect(isSettingsLink("rakazo:///artifacts")).toBe(false);
     expect(isSettingsLink("rakazo://")).toBe(false);
     expect(isSettingsLink("rakazo:///accounts")).toBe(false);
+    expect(isSettingsLink("rakazo:///account")).toBe(false);
   });
 
   it("closes the sheet before a link to another screen, and keeps settings links in it", () => {
@@ -88,8 +88,8 @@ describe("settings links", () => {
     const unregister = registerSettingsSheet(close);
 
     expect(redirectSystemPath({ path: "rakazo:///voice", initial: false })).toBe("rakazo:///voice");
-    expect(redirectSystemPath({ path: "rakazo:///account?focus=usage", initial: false })).toBe(
-      "rakazo:///account?focus=usage",
+    expect(redirectSystemPath({ path: "rakazo:///settings?focus=usage", initial: false })).toBe(
+      "rakazo:///settings?focus=usage",
     );
     expect(close).not.toHaveBeenCalled();
 

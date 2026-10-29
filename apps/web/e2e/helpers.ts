@@ -1,6 +1,5 @@
 import type { Locator, Page, TestInfo } from "@playwright/test";
-import { expect, test } from "@playwright/test";
-import { signupRequiresEmailVerification } from "@rakazo/core";
+import { expect } from "@playwright/test";
 
 export function isRealSandboxProvider(provider = process.env.SANDBOX_PROVIDER) {
   return provider === "e2b" || provider === "daytona" || provider === "boat";
@@ -53,53 +52,16 @@ export async function completeOnboarding(page: Page, testInfo?: TestInfo) {
 }
 
 /**
- * Creates the account through the auth API, as the sign-up form does, and opens
- * the page the form would land on. Passing testInfo goes through the form to
- * capture it; tests of the form itself use signupThroughForm.
+ * No-op: the API provisions one implicit deployment owner, so there is no account
+ * to create. The signature stays so existing call sites keep working.
  */
 export async function signup(
-  page: Page,
-  email: string,
-  password: string,
-  name: string,
-  testInfo?: TestInfo,
-) {
-  if (testInfo) return signupThroughForm(page, email, password, name, testInfo);
-  const baseURL = test.info().project.use.baseURL;
-  if (!baseURL) throw new Error("signup needs a baseURL");
-  const response = await page.request.post("/api/auth/sign-up/email", {
-    data: { email, password, name },
-    // Better Auth checks the origin of credential requests that carry cookies.
-    headers: { origin: new URL(baseURL).origin },
-  });
-  if (!response.ok()) throw new Error(`sign-up ${response.status()}: ${await response.text()}`);
-  const verify = signupRequiresEmailVerification(await response.json());
-  await page.goto(verify ? "/sign-up?verify=email" : "/onboarding");
-}
-
-export async function signupThroughForm(
-  page: Page,
-  email: string,
-  password: string,
-  name: string,
-  testInfo?: TestInfo,
-) {
-  await page.goto("/sign-up");
-  await expect(page.getByRole("heading", { name: "Create your Rakazo" })).toBeVisible();
-  if (testInfo) await captureScreenshot(page, testInfo, "01-sign-up");
-  await page.getByPlaceholder("Your name").fill(name);
-  await page.getByPlaceholder("Your email address").fill(email);
-  await showPasswordForm(page);
-  await page.getByPlaceholder("Password").fill(password);
-  await page.getByRole("button", { name: "Create account" }).click();
-}
-
-/** With email delivery the auth form opens on the emailed-code flow; switch to the password form. */
-export async function showPasswordForm(page: Page) {
-  const usePassword = page.getByRole("button", { name: "Use password" });
-  await expect(usePassword.or(page.getByPlaceholder("Password"))).toBeVisible();
-  if (await usePassword.isVisible()) await usePassword.click();
-}
+  _page: Page,
+  _email: string,
+  _password: string,
+  _name: string,
+  _testInfo?: TestInfo,
+) {}
 
 /** Open Advanced through its trigger, preserving an already-expanded section. */
 export async function expandAdvancedSection(section: Locator) {
@@ -192,15 +154,7 @@ export async function createBotFromPicker(
 /** Open the user Settings overlay, optionally switching to a sidebar section. */
 export async function openUserSettings(
   page: Page,
-  section?:
-    | "general"
-    | "models"
-    | "memory"
-    | "voice"
-    | "usage"
-    | "computer"
-    | "billing"
-    | "updates",
+  section?: "general" | "models" | "memory" | "voice" | "usage" | "computer" | "updates",
 ) {
   // A reload keeps settings open because the URL holds them; closing clears the URL at once.
   if (!new URL(page.url()).searchParams.has("settings")) {

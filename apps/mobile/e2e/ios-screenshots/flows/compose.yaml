@@ -2,9 +2,7 @@ appId: com.rakazo.app
 name: Compose
 ---
 - runFlow:
-    file: ../subflows/sign-in.yaml
-    env:
-      RAKAZO_ACTIVE_EMAIL: ${RAKAZO_SCREENSHOT_EMAIL}
+    file: ../subflows/launch-app.yaml
 - openLink: "rakazo:///new-space"
 - extendedWaitUntil:
     visible: "Customer support|Create space"

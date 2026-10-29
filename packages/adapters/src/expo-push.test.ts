@@ -10,12 +10,10 @@ import type { ExpoPushTicket } from "./expo-push.js";
 import {
   deletePushToken,
   ExpoPushProvider,
-  endSessionPushToken,
   expoPushData,
   expoPushErrorMessage,
   loadPushToken,
   MAX_EXPO_PUSH_RESPONSE_BYTES,
-  PushSessionEndedError,
   savePushToken,
 } from "./expo-push.js";
 
@@ -99,68 +97,25 @@ describe("expo push", () => {
   it("moves a device token to the user who saves it last", async () => {
     const dataDir = await mkdtemp(path.join(tmpdir(), "rakazo-push-"));
     dirs.push(dataDir);
-    await savePushToken(dataDir, "user-1", "ExponentPushToken[device]", "session-1");
-    await savePushToken(dataDir, "user-3", "ExponentPushToken[other]", "session-3");
+    await savePushToken(dataDir, "user-1", "ExponentPushToken[device]");
+    await savePushToken(dataDir, "user-3", "ExponentPushToken[other]");
 
-    await savePushToken(dataDir, "user-2", "ExponentPushToken[device]", "session-2");
+    await savePushToken(dataDir, "user-2", "ExponentPushToken[device]");
 
     await expect(loadPushToken(dataDir, "user-1")).resolves.toBeUndefined();
     await expect(loadPushToken(dataDir, "user-2")).resolves.toBe("ExponentPushToken[device]");
     await expect(loadPushToken(dataDir, "user-3")).resolves.toBe("ExponentPushToken[other]");
   });
 
-  it("removes a token only with the session that registered it", async () => {
-    const dataDir = await mkdtemp(path.join(tmpdir(), "rakazo-push-"));
-    dirs.push(dataDir);
-    await savePushToken(dataDir, "user-1", "ExponentPushToken[test]", "session-1");
-
-    await endSessionPushToken(dataDir, "user-1", "session-2");
-    await expect(loadPushToken(dataDir, "user-1")).resolves.toBe("ExponentPushToken[test]");
-
-    await endSessionPushToken(dataDir, "user-1", "session-1");
-    await expect(loadPushToken(dataDir, "user-1")).resolves.toBeUndefined();
-  });
-
-  it("moves a token to the session that replaces its own", async () => {
-    const dataDir = await mkdtemp(path.join(tmpdir(), "rakazo-push-"));
-    dirs.push(dataDir);
-    await savePushToken(dataDir, "user-1", "ExponentPushToken[test]", "session-1");
-
-    await endSessionPushToken(dataDir, "user-1", "session-1", "session-2");
-    await endSessionPushToken(dataDir, "user-1", "session-1");
-    await expect(loadPushToken(dataDir, "user-1")).resolves.toBe("ExponentPushToken[test]");
-
-    await endSessionPushToken(dataDir, "user-1", "session-2");
-    await expect(loadPushToken(dataDir, "user-1")).resolves.toBeUndefined();
-  });
-
-  it("does not restore a token another account claimed during session replacement", async () => {
-    const dataDir = await mkdtemp(path.join(tmpdir(), "rakazo-push-"));
-    dirs.push(dataDir);
-    const token = "ExponentPushToken[device]";
-    await savePushToken(dataDir, "user-a", token, "session-a");
-
-    await endSessionPushToken(dataDir, "user-a", "session-a", "session-a2", {
-      beforeCommit: async () => {
-        const dir = path.join(dataDir, "push-tokens");
-        await rm(path.join(dir, "user-a.txt"));
-        await writeFile(path.join(dir, "user-b.txt"), `${token}\nsession-b`, { mode: 0o600 });
-      },
-    });
-
-    await expect(loadPushToken(dataDir, "user-a")).resolves.toBeUndefined();
-    await expect(loadPushToken(dataDir, "user-b")).resolves.toBe(token);
-  });
-
   it("does not delete a token that changed after it was read", async () => {
     const dataDir = await mkdtemp(path.join(tmpdir(), "rakazo-push-"));
     dirs.push(dataDir);
     const tokenFile = path.join(dataDir, "push-tokens", "user-1.txt");
-    await savePushToken(dataDir, "user-1", "ExponentPushToken[t]", "session-1");
+    await savePushToken(dataDir, "user-1", "ExponentPushToken[t]");
 
-    await savePushToken(dataDir, "user-2", "ExponentPushToken[t]", "session-2", {
+    await savePushToken(dataDir, "user-2", "ExponentPushToken[t]", {
       beforeRemoveOthers: async () => {
-        await writeFile(tokenFile, "ExponentPushToken[x]\nsession-1b", "utf8");
+        await writeFile(tokenFile, "ExponentPushToken[x]", "utf8");
       },
     });
 
@@ -168,98 +123,30 @@ describe("expo push", () => {
     await expect(loadPushToken(dataDir, "user-2")).resolves.toBe("ExponentPushToken[t]");
   });
 
-  it("does not publish a token once its session is no longer active", async () => {
+  it("keeps a single owner when two accounts save one token", async () => {
     const dataDir = await mkdtemp(path.join(tmpdir(), "rakazo-push-"));
     dirs.push(dataDir);
-    await savePushToken(dataDir, "user-1", "ExponentPushToken[kept]", "session-kept");
-
-    await expect(
-      savePushToken(dataDir, "user-2", "ExponentPushToken[kept]", "session-2", {
-        sessionActive: async () => false,
-      }),
-    ).rejects.toBeInstanceOf(PushSessionEndedError);
-
-    await expect(loadPushToken(dataDir, "user-1")).resolves.toBe("ExponentPushToken[kept]");
-    await expect(loadPushToken(dataDir, "user-2")).resolves.toBeUndefined();
-  });
-
-  it("removes a token when session end waits out the registration that just saved it", async () => {
-    const dataDir = await mkdtemp(path.join(tmpdir(), "rakazo-push-"));
-    dirs.push(dataDir);
-    let release!: (active: boolean) => void;
-    const gate = new Promise<boolean>((resolve) => {
+    await savePushToken(dataDir, "user-1", "ExponentPushToken[t]");
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
       release = resolve;
     });
     let waiting = false;
-    const saving = savePushToken(dataDir, "user-1", "ExponentPushToken[t]", "session-1", {
-      sessionActive: async () => {
+    const first = savePushToken(dataDir, "user-2", "ExponentPushToken[t]", {
+      beforeRemoveOthers: async () => {
         waiting = true;
-        return gate;
-      },
-    });
-    await vi.waitFor(() => expect(waiting).toBe(true));
-    let ended = false;
-    const ending = endSessionPushToken(dataDir, "user-1", "session-1").then(() => {
-      ended = true;
-    });
-    await new Promise((resolve) => setTimeout(resolve, 30));
-    expect(ended).toBe(false);
-
-    release(true);
-    await saving;
-    await ending;
-    await expect(loadPushToken(dataDir, "user-1")).resolves.toBeUndefined();
-  });
-
-  it("publishes nothing when registration loses the session check", async () => {
-    const dataDir = await mkdtemp(path.join(tmpdir(), "rakazo-push-"));
-    dirs.push(dataDir);
-    let release!: (active: boolean) => void;
-    const gate = new Promise<boolean>((resolve) => {
-      release = resolve;
-    });
-    let waiting = false;
-    const saving = savePushToken(dataDir, "user-1", "ExponentPushToken[t]", "session-1", {
-      sessionActive: async () => {
-        waiting = true;
-        return gate;
-      },
-    });
-    await vi.waitFor(() => expect(waiting).toBe(true));
-    const ending = endSessionPushToken(dataDir, "user-1", "session-1");
-    release(false);
-
-    await expect(saving).rejects.toBeInstanceOf(PushSessionEndedError);
-    await ending;
-    await expect(loadPushToken(dataDir, "user-1")).resolves.toBeUndefined();
-  });
-
-  it("keeps a single owner when two accounts claim one token together", async () => {
-    const dataDir = await mkdtemp(path.join(tmpdir(), "rakazo-push-"));
-    dirs.push(dataDir);
-    await savePushToken(dataDir, "user-1", "ExponentPushToken[t]", "session-1");
-    let release!: (active: boolean) => void;
-    const gate = new Promise<boolean>((resolve) => {
-      release = resolve;
-    });
-    let waiting = false;
-    const first = savePushToken(dataDir, "user-2", "ExponentPushToken[t]", "session-2", {
-      sessionActive: async () => {
-        waiting = true;
-        return gate;
+        await gate;
       },
     });
     await vi.waitFor(() => expect(waiting).toBe(true));
     let secondDone = false;
-    const second = savePushToken(dataDir, "user-3", "ExponentPushToken[t]", "session-3").then(
-      () => {
-        secondDone = true;
-      },
-    );
+    const second = savePushToken(dataDir, "user-3", "ExponentPushToken[t]").then(() => {
+      secondDone = true;
+    });
     await new Promise((resolve) => setTimeout(resolve, 40));
     expect(secondDone).toBe(false);
 
-    release(true);
+    release();
     await first;
     await second;
     const owners = [
@@ -270,16 +157,18 @@ describe("expo push", () => {
     expect(owners).toEqual(["ExponentPushToken[t]"]);
   });
 
-  it("reads a token file written before tokens recorded their session", async () => {
+  it("reads a token file written by a release that recorded sessions", async () => {
     const dataDir = await mkdtemp(path.join(tmpdir(), "rakazo-push-"));
     dirs.push(dataDir);
     await mkdir(path.join(dataDir, "push-tokens"));
-    await writeFile(path.join(dataDir, "push-tokens", "user-1.txt"), "ExponentPushToken[legacy]\n");
+    await writeFile(
+      path.join(dataDir, "push-tokens", "user-1.txt"),
+      "ExponentPushToken[legacy]\nsession-1\n",
+    );
 
-    await endSessionPushToken(dataDir, "user-1", "session-1");
     await expect(loadPushToken(dataDir, "user-1")).resolves.toBe("ExponentPushToken[legacy]");
 
-    await savePushToken(dataDir, "user-2", "ExponentPushToken[legacy]", "session-2");
+    await savePushToken(dataDir, "user-2", "ExponentPushToken[legacy]");
     await expect(loadPushToken(dataDir, "user-1")).resolves.toBeUndefined();
   });
 
@@ -418,86 +307,28 @@ describe("expo push", () => {
     });
   });
 
-  it("does not deliver a token whose session row is gone, and leaves it to be retargeted", async () => {
+  it("delivers a legacy token recorded with a session id", async () => {
     const dataDir = await mkdtemp(path.join(tmpdir(), "rakazo-push-"));
     dirs.push(dataDir);
     const token = "ExponentPushToken[test]";
-    await savePushToken(dataDir, "user-1", token, "session-1");
-    const fetchMock = vi.fn();
+    await mkdir(path.join(dataDir, "push-tokens"));
+    await writeFile(path.join(dataDir, "push-tokens", "user-1.txt"), `${token}\nsession-1\n`);
+    const fetchMock = vi
+      .fn()
+      .mockImplementation(() =>
+        Promise.resolve(jsonResponse({ data: { status: "ok", id: "ticket" } })),
+      );
     vi.stubGlobal("fetch", fetchMock);
-    const push = new ExpoPushProvider(dataDir, { sessionExpiresAt: async () => null });
+    const push = new ExpoPushProvider(dataDir);
 
+    await expect(push.hasPushRecipient("user-1")).resolves.toBe(true);
     await expect(
       push.deliver(
-        { kind: "completion", title: "done", body: "secret", botId: "b", threadId: "t" },
+        { kind: "completion", title: "done", body: "ok", botId: "b", threadId: "t" },
         notifyContext,
       ),
-    ).resolves.toBe("undeliverable");
-    expect(fetchMock).not.toHaveBeenCalled();
-    await expect(loadPushToken(dataDir, "user-1")).resolves.toBe(token);
-    await expect(push.hasPushRecipient("user-1")).resolves.toBe(false);
-
-    await endSessionPushToken(dataDir, "user-1", "session-1", "session-2");
-    await expect(loadPushToken(dataDir, "user-1")).resolves.toBe(token);
-    const replaced = new ExpoPushProvider(dataDir, {
-      sessionExpiresAt: async (sessionId) =>
-        sessionId === "session-2" ? new Date(Date.now() + 60_000) : null,
-    });
-    await expect(replaced.hasPushRecipient("user-1")).resolves.toBe(true);
-  });
-
-  it("does not deliver a token whose session expiry has passed", async () => {
-    const dataDir = await mkdtemp(path.join(tmpdir(), "rakazo-push-"));
-    dirs.push(dataDir);
-    await savePushToken(dataDir, "user-1", "ExponentPushToken[test]", "session-1");
-    const fetchMock = vi.fn();
-    vi.stubGlobal("fetch", fetchMock);
-    const push = new ExpoPushProvider(dataDir, {
-      sessionExpiresAt: async () => new Date(Date.now() - 1_000),
-    });
-
-    await expect(
-      push.deliver(
-        { kind: "completion", title: "done", body: "secret", botId: "b", threadId: "t" },
-        notifyContext,
-      ),
-    ).resolves.toBe("undeliverable");
-    expect(fetchMock).not.toHaveBeenCalled();
-    await expect(loadPushToken(dataDir, "user-1")).resolves.toBeUndefined();
-  });
-
-  it("does not send a token another account claimed while the session was looked up", async () => {
-    const dataDir = await mkdtemp(path.join(tmpdir(), "rakazo-push-"));
-    dirs.push(dataDir);
-    const token = "ExponentPushToken[device]";
-    await savePushToken(dataDir, "user-1", token, "session-1");
-    let release!: () => void;
-    const gate = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    let waiting = false;
-    const fetchMock = vi.fn();
-    vi.stubGlobal("fetch", fetchMock);
-    const push = new ExpoPushProvider(dataDir, {
-      sessionExpiresAt: async () => {
-        waiting = true;
-        await gate;
-        return new Date(Date.now() + 60_000);
-      },
-    });
-
-    const delivering = push.deliver(
-      { kind: "completion", title: "done", body: "secret", botId: "b", threadId: "t" },
-      notifyContext,
-    );
-    await vi.waitFor(() => expect(waiting).toBe(true));
-    await savePushToken(dataDir, "user-2", token, "session-2");
-    release();
-
-    await expect(delivering).resolves.toBe("undeliverable");
-    expect(fetchMock).not.toHaveBeenCalled();
-    await expect(loadPushToken(dataDir, "user-1")).resolves.toBeUndefined();
-    await expect(loadPushToken(dataDir, "user-2")).resolves.toBe(token);
+    ).resolves.toBe("delivered");
+    expect(fetchMock).toHaveBeenCalledOnce();
   });
 
   it("saves a token when a leftover lock file is empty", async () => {
@@ -506,7 +337,7 @@ describe("expo push", () => {
     await mkdir(path.join(dataDir, "push-tokens"), { recursive: true });
     await writeFile(path.join(dataDir, "push-tokens", ".lock"), "");
 
-    await savePushToken(dataDir, "user-1", "ExponentPushToken[test]", "session-1");
+    await savePushToken(dataDir, "user-1", "ExponentPushToken[test]");
 
     await expect(loadPushToken(dataDir, "user-1")).resolves.toBe("ExponentPushToken[test]");
   });
@@ -551,12 +382,7 @@ flock(fd, 8);
       try {
         await vi.waitFor(() => expect(output).toContain("ready"));
         let saved = false;
-        const saving = savePushToken(
-          dataDir,
-          "user-1",
-          "ExponentPushToken[test]",
-          "session-1",
-        ).then(() => {
+        const saving = savePushToken(dataDir, "user-1", "ExponentPushToken[test]").then(() => {
           saved = true;
         });
         await new Promise((resolve) => setTimeout(resolve, 50));
@@ -570,69 +396,6 @@ flock(fd, 8);
       }
     },
   );
-
-  it("delivers when the registering session is still live", async () => {
-    const dataDir = await mkdtemp(path.join(tmpdir(), "rakazo-push-"));
-    dirs.push(dataDir);
-    await savePushToken(dataDir, "user-1", "ExponentPushToken[test]", "session-1");
-    const fetchMock = vi
-      .fn()
-      .mockImplementation(() =>
-        Promise.resolve(jsonResponse({ data: { status: "ok", id: "ticket" } })),
-      );
-    vi.stubGlobal("fetch", fetchMock);
-    const push = new ExpoPushProvider(dataDir, {
-      sessionExpiresAt: async () => new Date(Date.now() + 60_000),
-    });
-
-    await expect(
-      push.deliver(
-        { kind: "completion", title: "done", body: "ok", botId: "b", threadId: "t" },
-        notifyContext,
-      ),
-    ).resolves.toBe("delivered");
-    expect(fetchMock).toHaveBeenCalledOnce();
-  });
-
-  it("does not deliver a session-bound token when it cannot check the session", async () => {
-    const dataDir = await mkdtemp(path.join(tmpdir(), "rakazo-push-"));
-    dirs.push(dataDir);
-    await savePushToken(dataDir, "user-1", "ExponentPushToken[test]", "session-1");
-    const fetchMock = vi.fn();
-    vi.stubGlobal("fetch", fetchMock);
-    const push = new ExpoPushProvider(dataDir);
-
-    await expect(
-      push.deliver(
-        { kind: "completion", title: "done", body: "secret", botId: "b", threadId: "t" },
-        notifyContext,
-      ),
-    ).resolves.toBe("undeliverable");
-    expect(fetchMock).not.toHaveBeenCalled();
-    await expect(loadPushToken(dataDir, "user-1")).resolves.toBe("ExponentPushToken[test]");
-  });
-
-  it("keeps the token when the session lookup fails", async () => {
-    const dataDir = await mkdtemp(path.join(tmpdir(), "rakazo-push-"));
-    dirs.push(dataDir);
-    await savePushToken(dataDir, "user-1", "ExponentPushToken[test]", "session-1");
-    const fetchMock = vi.fn();
-    vi.stubGlobal("fetch", fetchMock);
-    const push = new ExpoPushProvider(dataDir, {
-      sessionExpiresAt: async () => {
-        throw new Error("database unavailable");
-      },
-    });
-
-    await expect(
-      push.deliver(
-        { kind: "completion", title: "done", body: "secret", botId: "b", threadId: "t" },
-        notifyContext,
-      ),
-    ).resolves.toBe("undeliverable");
-    expect(fetchMock).not.toHaveBeenCalled();
-    await expect(loadPushToken(dataDir, "user-1")).resolves.toBe("ExponentPushToken[test]");
-  });
 
   it("throws when Expo rejects the request", async () => {
     const dataDir = await mkdtemp(path.join(tmpdir(), "rakazo-push-"));

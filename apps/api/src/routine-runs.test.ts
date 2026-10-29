@@ -9,7 +9,6 @@ const actor: Actor = {
   userId: "user-1",
   spaceId: "space-1",
   email: "user@rakazo.test",
-  isDeploymentOwner: false,
 };
 const at = new Date("2026-01-02T12:00:00Z");
 function fixture() {

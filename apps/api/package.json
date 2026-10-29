@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "node ../../scripts/dev-watch.mjs src/index.ts",
-    "build": "node ../../scripts/build-server.mjs src/index.ts src/cli/migrate-database.ts src/cli/bootstrap-owner.ts",
+    "build": "node ../../scripts/build-server.mjs src/index.ts src/cli/migrate-database.ts",
     "start": "node --enable-source-maps dist/index.js",
     "check": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run --root ../.. apps/api/src",
@@ -20,7 +20,6 @@
     "@orpc/server": "1.15.7",
     "@rakazo/adapter-kit": "workspace:*",
     "@rakazo/adapters": "workspace:*",
-    "@rakazo/auth": "workspace:*",
     "@rakazo/contracts": "workspace:*",
     "@rakazo/core": "workspace:*",
     "@rakazo/db": "workspace:*",

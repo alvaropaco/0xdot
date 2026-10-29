@@ -14,7 +14,6 @@ overwrite an existing `.env` without an explicit backup and operator consent.**
 | --- | --- | --- |
 | `POSTGRES_PASSWORD` | `openssl rand -hex 16` | Postgres owner password inside Compose (migrations) |
 | `POSTGRES_APP_PASSWORD` | `openssl rand -hex 16` | Password of the app's `rakazo_app` login, which row-level security applies to |
-| `BETTER_AUTH_SECRET` | `openssl rand -hex 32` | Auth/session signing |
 | `ENCRYPTION_KEY` | `openssl rand -hex 32` | Encrypts stored credentials at rest |
 | `SCREEN_PROXY_SECRET` | `openssl rand -hex 32` | Signs short-lived `/novnc/*` screen capabilities |
 | `SANDBOX_SUPERVISOR_TOKEN` | `openssl rand -hex 32` | API ↔ sandbox supervisor auth |
@@ -28,7 +27,7 @@ Manual generation (same shapes the installer uses):
 
 ```bash
 openssl rand -hex 16   # POSTGRES_PASSWORD, POSTGRES_APP_PASSWORD
-openssl rand -hex 32   # BETTER_AUTH_SECRET, ENCRYPTION_KEY, SCREEN_PROXY_SECRET, SANDBOX_SUPERVISOR_TOKEN
+openssl rand -hex 32   # ENCRYPTION_KEY, SCREEN_PROXY_SECRET, SANDBOX_SUPERVISOR_TOKEN
 ```
 
 Source-checkout `.env.example` also requires `POSTGRES_PASSWORD` and
@@ -54,12 +53,11 @@ Do not reuse one string across keys.
 These must be **independent** random values (do not copy-paste the same
 secret into multiple keys):
 
-- `BETTER_AUTH_SECRET`
 - `ENCRYPTION_KEY`
 - `SCREEN_PROXY_SECRET`
 - `SANDBOX_SUPERVISOR_TOKEN`
 - `RAKAZO_UPDATER_TOKEN` (only if the updater profile is enabled; ≥32 chars,
-  also distinct from the four above)
+  also distinct from the three above)
 
 Rotating `ENCRYPTION_KEY` after credentials were stored makes old ciphertext
 unreadable. Keep the original key for an existing deployment unless you
@@ -82,7 +80,6 @@ From `.env.images.example` (images installer). Leave blank if unused:
 | `TYPESAFE_API_KEY` | Optional TypeSafe Jev Auto Review verifier (`RAKAZO_AUTO_REVIEW_PROVIDER=jev`) |
 | `COMPOSIO_API_KEY` | Composio managed catalog |
 | `E2B_API_KEY` / `DAYTONA_API_KEY` / `BOAT_API_KEY` | Remote computers when `SANDBOX_PROVIDER` is not `docker` |
-| `SMTP_URL` / `EMAIL_FROM` | Password-recovery email |
 | `EXPO_ACCESS_TOKEN` | Mobile push when the Expo project enables enhanced push security |
 | Messaging tokens (Slack, Telegram, …) | Only if you enable those surfaces |
 
@@ -106,9 +103,6 @@ later" item.
 
 ## Recovery without reprinting secrets
 
-- Lost UI password: use SMTP recovery if configured; otherwise operator
-  identity recovery is out of band (DB). Prefer not to rotate
-  `BETTER_AUTH_SECRET` casually on a live deploy.
 - Lost `.env`: from backup only. Recreating random secrets on a volume that
   still holds Postgres data will desynchronize passwords and encryption.
 - Moving hosts: copy `.env` and volumes together; treat `.env` as secret

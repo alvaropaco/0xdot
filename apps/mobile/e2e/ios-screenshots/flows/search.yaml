@@ -2,9 +2,7 @@ appId: com.rakazo.app
 name: Search
 ---
 - runFlow:
-    file: ../subflows/sign-in.yaml
-    env:
-      RAKAZO_ACTIVE_EMAIL: ${RAKAZO_SCREENSHOT_EMAIL}
+    file: ../subflows/launch-app.yaml
 - tapOn:
     id: "home-search-button"
     optional: true

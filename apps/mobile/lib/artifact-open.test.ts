@@ -1,14 +1,12 @@
-import * as SecureStore from "expo-secure-store";
 import * as Sharing from "expo-sharing";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({
   files: new Map<string, string>(),
   secure: new Map<string, string>(),
-  generation: 0,
   apiBase: "https://api.example.test",
   userId: "user-a",
-  token: "fake-token-a",
+  namespace: "ns-1",
   getSize: vi.fn(),
   rpc: vi.fn(),
 }));
@@ -58,9 +56,8 @@ vi.mock("expo-secure-store", () => ({
 vi.mock("react-native", () => ({ Image: { getSize: state.getSize } }));
 vi.mock("expo-sharing", () => ({ isAvailableAsync: vi.fn(), shareAsync: vi.fn() }));
 vi.mock("./i18n", () => ({ t: (value: string) => value }));
-vi.mock("./session", () => ({
-  currentSessionGeneration: () => state.generation,
-  loadSessionToken: async () => state.token,
+vi.mock("./artifact-cache-namespace", () => ({
+  artifactCacheNamespace: async () => state.namespace,
 }));
 vi.mock("./api", () => ({
   rpc: state.rpc,
@@ -68,7 +65,7 @@ vi.mock("./api", () => ({
   selectedSpaceId: () => null,
   captureApiRequestContext: async () => ({
     apiBase: state.apiBase,
-    headers: { authorization: `Bearer ${state.token}` },
+    headers: {},
   }),
 }));
 
@@ -81,10 +78,8 @@ beforeEach(() => {
   vi.resetModules();
   state.files.clear();
   state.secure.clear();
-  state.generation = 0;
   state.apiBase = "https://api.example.test";
   state.userId = "user-a";
-  state.token = "fake-token-a";
   state.rpc
     .mockReset()
     .mockImplementation(async (proc: string) =>
@@ -104,7 +99,7 @@ describe("artifact preview caches", () => {
         timeoutMs: api.ARTIFACT_DOWNLOAD_TIMEOUT_MS,
         requestContext: {
           apiBase: state.apiBase,
-          headers: { authorization: "Bearer fake-token-a" },
+          headers: {},
         },
       },
     );
@@ -127,14 +122,13 @@ describe("artifact preview caches", () => {
     expect(artifactFetches()).toBe(1);
   });
 
-  it("downloads previews, text, and attachments without persisted cache metadata", async () => {
+  it("downloads previews, text, and attachments and reuses them across restarts", async () => {
     let api = await load();
     const stored = await api.imageArtifactPreview(target, "art-1", "image/png");
     vi.resetModules();
     api = await load();
-    vi.mocked(SecureStore.setItemAsync).mockRejectedValueOnce(new Error("locked"));
     const fresh = await api.imageArtifactPreview(target, "art-1", "image/png");
-    expect(fresh.uri).not.toBe(stored.uri);
+    expect(fresh.uri).toBe(stored.uri);
     expect(fresh.size).toEqual(stored.size);
     expect(await api.readMobileArtifactText(target, "art-2", "text/plain")).toBe("aGk=");
     vi.mocked(Sharing.isAvailableAsync).mockResolvedValueOnce(true);
@@ -143,14 +137,7 @@ describe("artifact preview caches", () => {
       mimeType: "application/pdf",
     });
     await api.imageArtifactPreview(target, "art-1", "image/png");
-    expect(artifactFetches()).toBe(4);
-    vi.resetModules();
-    api = await load();
-    vi.mocked(SecureStore.setItemAsync).mockRejectedValueOnce(new Error("locked"));
-    const restarted = await api.imageArtifactPreview(target, "art-1", "image/png");
-    expect(restarted.uri).not.toBe(stored.uri);
-    expect(restarted.uri).not.toBe(fresh.uri);
-    expect(artifactFetches()).toBe(5);
+    expect(artifactFetches()).toBe(3);
   });
 
   it("models 20 previews, three remount cycles, and a restart", async () => {
@@ -200,18 +187,10 @@ describe("artifact preview caches", () => {
     expect(artifactFetches()).toBe(2);
   });
 
-  it.each(["endpoint", "account", "sign-out"])("invalidates reuse on %s", async (change) => {
+  it("invalidates reuse when the server changes", async () => {
     const api = await load();
     const first = await api.imageArtifactPreview(target, "art-1", "image/png");
-    if (change === "endpoint") state.apiBase = "https://other.example.test";
-    else {
-      await (await import("./artifact-cache-session")).invalidateArtifactCacheSession();
-      state.generation += 1;
-      if (change === "account") {
-        state.userId = "user-b";
-        state.token = "fake-token-b";
-      }
-    }
+    state.apiBase = "https://other.example.test";
     const next = await api.imageArtifactPreview(target, "art-1", "image/png");
     expect(next.uri).not.toBe(first.uri);
     expect(artifactFetches()).toBe(2);
@@ -229,7 +208,7 @@ describe("artifact preview caches", () => {
     expect(artifactFetches()).toBe(3);
   });
 
-  it("rejects a late old-account download without writing it", async () => {
+  it("rejects a late download after the server changed without writing it", async () => {
     const api = await load();
     let finish!: (value: { contentBase64: string }) => void;
     state.rpc.mockImplementation(async (proc: string) =>
@@ -241,10 +220,10 @@ describe("artifact preview caches", () => {
     );
     const pending = api.imageArtifactUri(target, "art-1", "image/png");
     await vi.waitFor(() => expect(finish).toBeDefined());
-    state.generation += 1;
-    finish({ contentBase64: "old-account" });
-    await expect(pending).rejects.toThrow("Artifact session changed");
-    expect([...state.files.values()]).not.toContain("old-account");
+    state.apiBase = "https://other.example.test";
+    finish({ contentBase64: "stale-server" });
+    await expect(pending).rejects.toThrow("Artifact scope changed");
+    expect([...state.files.values()]).not.toContain("stale-server");
   });
 
   it("retries failed sizing and failed downloads", async () => {

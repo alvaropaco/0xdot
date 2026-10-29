@@ -26,7 +26,6 @@ import { native, useThemedStyles } from "../lib/native";
 import { getSearchInbox, subscribeSearchInbox } from "../lib/search-inbox";
 import type { SearchSheetRow } from "../lib/search-sheet";
 import { searchSheetRows } from "../lib/search-sheet";
-import { currentSessionGeneration } from "../lib/session";
 import { useSearch } from "../lib/use-search";
 
 const kindIcons = {
@@ -89,7 +88,6 @@ export default function SearchSheet() {
     const currentAttempt = ++attempt.current;
     const isCurrent = () => focused.current && attempt.current === currentAttempt;
     const previousSpaceId = selectedSpaceId();
-    const generation = currentSessionGeneration();
     const apiBase = currentApiBase();
     let selected = false;
     let selectionSeq: number | undefined;
@@ -129,7 +127,6 @@ export default function SearchSheet() {
         selectionSeq === spaceSelectionSeq() &&
         previousSpaceId !== row.spaceId &&
         selectedSpaceId() === row.spaceId &&
-        generation === currentSessionGeneration() &&
         apiBase === currentApiBase()
       ) {
         await selectSpace(previousSpaceId ?? "").catch(() => false);

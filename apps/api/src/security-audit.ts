@@ -1,5 +1,4 @@
 import type { SecurityEventInput, SecurityEventType } from "@rakazo/db";
-import { recordSecurityEvent } from "@rakazo/db";
 
 type AuditedProcedure = {
   type: SecurityEventType;
@@ -50,10 +49,6 @@ export const AUDITED_PROCEDURES: Record<string, AuditedProcedure> = {
   "voice.disconnect": { type: "credential.deleted", kind: "voice", fields: ["provider"] },
   "memory.connectProvider": { type: "credential.created", kind: "memory" },
   "memory.disconnectProvider": { type: "credential.deleted", kind: "memory" },
-  "deployment.update": {
-    type: "deployment.settings.changed",
-    fields: ["signupsEnabled", "computerHost"],
-  },
   "mcp.assignments.approve": {
     type: "approval.decided",
     kind: "mcp",
@@ -105,62 +100,9 @@ export function procedureSecurityEvent(
     if (typeof value === "string" || typeof value === "boolean" || value === null)
       metadata[field.split(".").at(-1)!] = value;
   }
-  if (procedure === "deployment.update") {
-    metadata.changed = Object.keys(fields)
-      .filter((key) => fields[key] !== undefined)
-      .sort()
-      .join(",");
-  }
   if (procedure === "mcp.assignments.approve") metadata.decision = "allow";
   if (procedure === "mcp.assignments.dismiss") metadata.decision = "deny";
   return { type: audited.type, userId: actor.userId, spaceId: actor.spaceId, metadata };
-}
-
-const FAILED_CREDENTIAL_PATHS: Record<string, SecurityEventType> = {
-  "/sign-in/email": "auth.sign_in.failed",
-  "/sign-in/email-otp": "auth.sign_in.failed",
-  "/passkey/verify-authentication": "auth.sign_in.failed",
-  "/sign-up/email": "auth.sign_up.failed",
-};
-const RATE_LIMIT_EVENT_WINDOW_MS = 60_000;
-const RATE_LIMIT_KEYS_MAX = 10_000;
-
-/**
- * Failed credential attempts and rate-limit hits, read from the auth response. Rejections thrown
- * before Better Auth's own hooks run (closed registration, a rate limit) only show up here.
- */
-export function createAuthResponseAudit(now: () => number = Date.now) {
-  // A limited client can keep hammering; one row per address, path, and minute is the signal.
-  const rateLimited = new Map<string, number>();
-  return async (path: string, ip: string | undefined, response: Response): Promise<void> => {
-    if (response.status === 429) {
-      const key = `${ip ?? "unknown"}|${path}`;
-      const at = now();
-      const last = rateLimited.get(key);
-      if (last !== undefined && at - last < RATE_LIMIT_EVENT_WINDOW_MS) return;
-      if (rateLimited.size >= RATE_LIMIT_KEYS_MAX) rateLimited.clear();
-      rateLimited.set(key, at);
-      await recordSecurityEvent({ type: "rate_limit.hit", ip, metadata: { path } });
-      return;
-    }
-    const failed = FAILED_CREDENTIAL_PATHS[path];
-    if (!failed || response.status < 400) return;
-    await recordSecurityEvent({
-      type: failed,
-      ip,
-      metadata: { path, status: response.status, reason: await errorCode(response) },
-    });
-  };
-}
-
-async function errorCode(response: Response): Promise<string | null> {
-  try {
-    const body: unknown = await response.clone().json();
-    const code = isRecord(body) ? body.code : undefined;
-    return typeof code === "string" && /^[A-Z0-9_]{1,64}$/.test(code) ? code : null;
-  } catch {
-    return null;
-  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

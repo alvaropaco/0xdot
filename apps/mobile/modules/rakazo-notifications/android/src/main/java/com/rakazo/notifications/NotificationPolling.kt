@@ -1,20 +1,5 @@
 package com.rakazo.notifications
 
-internal class PollTokenCache {
-  @Volatile private var token: String? = null
-
-  // The service commits under its generation lock after the expensive read.
-  fun getOrLoad(load: () -> String, commit: (() -> Unit) -> Boolean): String? {
-    token?.let { return it }
-    val loaded = load()
-    return if (commit { token = loaded }) loaded else null
-  }
-
-  fun reset() {
-    token = null
-  }
-}
-
 internal class PollHistoryWrites {
   private var persistedSeen: Set<String>? = null
 

@@ -11,7 +11,7 @@ import { isSettingsLink, openFromSettingsSheet, registerSettingsSheet } from "./
 
 const testFileUrl = import.meta.url;
 const home = readFileSync(new URL("../app/index.tsx", testFileUrl), "utf8");
-const account = readFileSync(new URL("../app/(settings)/account.tsx", testFileUrl), "utf8");
+const settings = readFileSync(new URL("../app/(settings)/settings.tsx", testFileUrl), "utf8");
 function slice(source: string, start: string, end: string) {
   const from = source.indexOf(start);
   const to = source.indexOf(end, from);
@@ -63,8 +63,6 @@ it("keeps only Activity, Search and Create in the transparent native home header
     nativeHeader: true,
     navigation: { setOptions },
     ready: true,
-    hasSession: true,
-    initials: "A",
     activityMode: false,
     toggleActivityMode: vi.fn(),
     runCreateAction: vi.fn(),
@@ -107,7 +105,6 @@ it.each(["android", "ios"])("omits Artifacts from the %s fallback header", (plat
     columnInsets: { left: 0, right: 0 },
     t,
     router: { push: vi.fn() },
-    initials: "A",
     activityMode: false,
     toggleActivityMode: vi.fn(),
     tokens: {},
@@ -124,63 +121,62 @@ it.each(["android", "ios"])("omits Artifacts from the %s fallback header", (plat
       Array.from(container.querySelectorAll("[aria-label]"), (node) =>
         node.getAttribute("aria-label"),
       ),
-    ).toEqual(["Account", "Activity", "Search", "Create"]);
+    ).toEqual(["Settings", "Activity", "Search", "Create"]);
   } finally {
     act(() => root.unmount());
   }
 });
 
-it.each([false, true])(
-  "keeps account navigation free of server controls (stored owner: %s)",
-  (isDeploymentOwner) => {
-    const start = account.lastIndexOf(
-      "        <SettingsGroup>",
-      account.indexOf('title: t("Artifacts")'),
+it("keeps the settings links group on app screens, with Server outside the sheet", () => {
+  const start = settings.lastIndexOf(
+    "        <SettingsGroup>",
+    settings.indexOf('title: t("Artifacts")'),
+  );
+  const group = slice(
+    settings.slice(start),
+    "        <SettingsGroup>",
+    "\n\n        <SettingsGroup>",
+  );
+  const events: string[] = [];
+  const unregister = registerSettingsSheet(() => events.push("close"));
+  const router = { push: vi.fn((href: string) => events.push(href)) };
+  const container = document.createElement("div");
+  const root = createRoot(container);
+  try {
+    act(() =>
+      root.render(
+        evaluate(`return (${group});`, {
+          React,
+          SettingsGroup: View,
+          SettingsRow: Button,
+          t,
+          router,
+          isSettingsLink,
+          openFromSettingsSheet,
+        }),
+      ),
     );
-    const group = slice(
-      account.slice(start),
-      "        <SettingsGroup>",
-      "\n\n        <SettingsGroup>",
-    );
-    const events: string[] = [];
-    const unregister = registerSettingsSheet(() => events.push("close"));
-    const router = { push: vi.fn((href: string) => events.push(href)) };
-    const container = document.createElement("div");
-    const root = createRoot(container);
-    const render = (pending: boolean) =>
-      evaluate(`return (${group});`, {
-        React,
-        SettingsGroup: View,
-        SettingsRow: Button,
-        t,
-        pending,
-        me: { isDeploymentOwner },
-        router,
-        isSettingsLink,
-        openFromSettingsSheet,
-      });
-    try {
-      act(() => root.render(render(false)));
-      const rows = Array.from(container.querySelectorAll("button"));
-      expect(rows.map((row) => row.textContent)).toEqual([
-        "Artifacts",
-        "Models",
-        "Voice",
-        "Integrations",
-        "AI data sharing",
-      ]);
-      expect(rows[0]!.getAttribute("role")).toBe("button");
-      expect(rows[0]!.dataset.chevron).toBe("right");
-      act(() => rows[0]!.click());
-      expect(events).toEqual(["close", "/artifacts"]);
-      events.length = 0;
-      act(() => rows[1]!.click());
-      expect(events).toEqual(["/models"]);
-      act(() => root.render(render(true)));
-      expect(container.querySelector("button")!.disabled).toBe(true);
-    } finally {
-      act(() => root.unmount());
-      unregister();
-    }
-  },
-);
+    const rows = Array.from(container.querySelectorAll("button"));
+    expect(rows.map((row) => row.textContent)).toEqual([
+      "Server",
+      "Artifacts",
+      "Models",
+      "Voice",
+      "Integrations",
+      "AI data sharing",
+    ]);
+    expect(rows[0]!.getAttribute("role")).toBe("button");
+    expect(rows[0]!.dataset.chevron).toBe("right");
+    act(() => rows[0]!.click());
+    expect(events).toEqual(["close", "/server"]);
+    events.length = 0;
+    act(() => rows[1]!.click());
+    expect(events).toEqual(["close", "/artifacts"]);
+    events.length = 0;
+    act(() => rows[2]!.click());
+    expect(events).toEqual(["/models"]);
+  } finally {
+    act(() => root.unmount());
+    unregister();
+  }
+});

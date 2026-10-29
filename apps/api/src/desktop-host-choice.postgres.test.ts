@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FakeSandboxProvider } from "@rakazo/adapters";
 import { expect, it } from "vitest";
-import { sessionCookieHeader } from "../../../packages/testkit/src/index.js";
+import { OWNER_COOKIE } from "../../../packages/testkit/src/index.js";
 import { createApp } from "./app.js";
 
 const databaseUrl = process.env.VERIFY_DATABASE === "1" ? process.env.DATABASE_URL : undefined;
@@ -22,23 +22,10 @@ it.skipIf(!databaseUrl).each([
     desktopStackToken: fixture.nativeToken ? "ab".repeat(32) : undefined,
     agentRuntime: "scripted",
     wakeupDriver: "memory",
-    signupsEnabled: "true",
-    signupAllowlist: "",
     webOrigin: "http://127.0.0.1:5173",
-    authUrl: "http://127.0.0.1:5173",
   });
   try {
-    const signup = await handles.app.request("/api/auth/sign-up/email", {
-      method: "POST",
-      headers: { "content-type": "application/json", origin: "http://127.0.0.1:5173" },
-      body: JSON.stringify({
-        email: `host-choice-${fixture.sandboxProvider}-${fixture.nativeToken}@example.test`,
-        password: "test-password-123",
-        name: "Host tester",
-      }),
-    });
-    expect(signup.status).toBeLessThan(400);
-    const cookie = sessionCookieHeader(signup);
+    const cookie = OWNER_COOKIE;
     for (const procedure of ["me", "bootstrap"]) {
       const response = await handles.app.request(`/rpc/${procedure}`, {
         method: "POST",
@@ -49,7 +36,6 @@ it.skipIf(!databaseUrl).each([
       const { json } = await response.json();
       expect(procedure === "me" ? json : json.me).toMatchObject({
         canChooseHostComputer: fixture.expected,
-        isDeploymentOwner: false,
       });
     }
   } finally {

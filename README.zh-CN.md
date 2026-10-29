@@ -70,7 +70,7 @@ https://github.com/user-attachments/assets/dccdeddb-2134-4a56-8eed-b2e591736b1c
 [![部署到 Railway](https://railway.com/button.svg)](https://railway.com/new/template/rakazo-template)
 
 部署包含 PostgreSQL、持久化存储和 Railway 计算机的私有 Rakazo 实例。
-填写邮箱和 Railway API 令牌，登录后再连接模型。
+填写 Railway API 令牌以完成部署，然后连接模型。
 参见[安装、安全默认设置与备份](./infra/railway/README.md)。
 
 ## 快速开始（已发布镜像）
@@ -86,7 +86,7 @@ bash install-images.sh
 安装脚本会下载 Compose 文件，生成包含随机密钥的 `.env`，并启动 Rakazo。
 再次运行时会保留已有的 `.env`。
 
-打开 [http://127.0.0.1:5173](http://127.0.0.1:5173)，创建账号并连接模型。
+打开 [http://127.0.0.1:5173](http://127.0.0.1:5173)，连接模型即可使用。
 默认启用本地 Docker 计算机。也可以选择远程提供商 `e2b`、`daytona`、`createos`、`box` 或 `railway`，
 并配置相应的 API 密钥。
 
@@ -126,7 +126,7 @@ cp .env.example .env
 
 将 `POSTGRES_PASSWORD` 和 `POSTGRES_APP_PASSWORD` 分别设置为由 `openssl rand -hex 16` 生成的两个值，再把它们填入 `DATABASE_MIGRATION_URL` 和 `DATABASE_URL`。
 应用以自己的 `rakazo_app` 登录身份连接数据库，并受行级安全策略约束；迁移则以所有者身份运行（参见 [数据库角色](docs/self-host.md#database-roles)）。
-为 `BETTER_AUTH_SECRET`、`ENCRYPTION_KEY` 和 `SCREEN_PROXY_SECRET` 分别设置独立的长随机值。
+为 `ENCRYPTION_KEY` 和 `SCREEN_PROXY_SECRET` 分别设置独立的长随机值。
 Docker 沙箱还需要专用的 `SANDBOX_SUPERVISOR_TOKEN`。
 你也可以设置 `OPENROUTER_API_KEY`，或在首次设置时连接支持的模型提供商。
 
@@ -166,7 +166,7 @@ pnpm dev
 因此应保留 `.env` 中相应的值，或使用 `ALTER ROLE`、重命名等方式在数据库中修改。
 只有在完成备份后，或确认数据可以丢弃时，才重建数据卷；`docker compose down -v` 会删除全部 Postgres 数据。
 
-打开 [http://127.0.0.1:5173](http://127.0.0.1:5173)，创建账号、连接模型，并创建第一个机器人。
+打开 [http://127.0.0.1:5173](http://127.0.0.1:5173)，连接模型并创建第一个机器人。
 
 部署、提供商选择、备份与升级说明见[自托管指南](./docs/self-host.md)。
 
@@ -230,7 +230,7 @@ chmod +x Rakazo-*.AppImage
 
 网页版及 Electron 内嵌界面可在 **Settings → Language**（设置 → 语言）中选择英语、德语、韩语、土耳其语、
 印地语、巴西葡萄牙语、简体中文、西班牙语、俄语、法语、希伯来语、荷兰语和日语。
-Expo 应用包含英语、简体中文、俄语、德语、荷兰语和日语翻译，**Account → Language**（账号 → 语言）列出这六种语言。
+Expo 应用包含英语、简体中文、俄语、德语、荷兰语和日语翻译，**Settings → Language**（设置 → 语言）列出这六种语言。
 在用户保存选择之前，移动端的初始语言由设备语言或 `EXPO_PUBLIC_DEFAULT_UI_LOCALE` 决定。
 
 官网首页（`apps/www`）提供英语、德语、韩语、中文和日语版本，可通过页脚语言链接切换，

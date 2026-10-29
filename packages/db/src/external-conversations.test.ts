@@ -6,8 +6,6 @@ import { IsolationError } from "./scope.js";
 const actor: Actor = {
   userId: "user-1",
   spaceId: "space-1",
-  email: "owner@example.com",
-  isDeploymentOwner: true,
 };
 
 function sqlText(query: unknown): string {

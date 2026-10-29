@@ -50,7 +50,6 @@ vi.mock("expo-speech", () => ({
 vi.mock("react-native", () => ({ Platform: { OS: "ios" } }));
 vi.mock("./api", () => ({
   aiConsentCoalesceKey: vi.fn(() => "test-consent-context"),
-  authHeaders: vi.fn(),
   captureApiRequestContext: vi.fn(),
   currentApiBase: vi.fn(() => "https://api.example"),
   rpc: vi.fn(),

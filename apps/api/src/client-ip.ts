@@ -3,10 +3,12 @@ import { existsSync } from "node:fs";
 import { BlockList, isIP } from "node:net";
 import { networkInterfaces } from "node:os";
 import { getConnInfo } from "@hono/node-server/conninfo";
-import { CLIENT_IP_HEADER } from "@rakazo/auth";
 import { securityRequestBindings } from "@rakazo/db";
 import { enrichLogContext } from "@rakazo/logging";
 import type { Context, MiddlewareHandler } from "hono";
+
+/** The header Better Auth trusted for the real client address. */
+export const CLIENT_IP_HEADER = "x-rakazo-client-ip";
 
 export interface ClientIpConfig {
   /** Reverse proxies allowed to report the client address: IPs, CIDR ranges, or hostnames. */

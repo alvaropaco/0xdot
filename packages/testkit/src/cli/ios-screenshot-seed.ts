@@ -1,5 +1,6 @@
 import { createDb, createThreadMessage } from "@rakazo/db";
-import { sessionCookieHeader } from "../index.js";
+import {} from "../index.js";
+import { OWNER_COOKIE } from "./index.js";
 
 const MARKER = "marigold checklist";
 const READY = "The fixture workspace is ready.";
@@ -38,58 +39,55 @@ interface MeRow {
 export async function seedIosScreenshotFixture(input: {
   apiUrl: string;
   databaseUrl: string;
-  email: string;
-  emptyEmail: string;
-  password: string;
 }): Promise<IosScreenshotFixture> {
-  const populated = await ensureUser(input.apiUrl, input.email, input.password, "Screenshot User");
-  const empty = await ensureUser(input.apiUrl, input.emptyEmail, input.password, "Empty User");
-  for (const bot of await rpc<BotRow[]>(input.apiUrl, empty.headers, "bots/list")) {
-    await rpc(input.apiUrl, empty.headers, "bots/remove", { botId: bot.id, deleteMemories: false });
+  const headers = ownerHeaders();
+  // Reset the owner's board so the seed is deterministic across runs.
+  for (const bot of await rpc<BotRow[]>(input.apiUrl, headers, "bots/list")) {
+    await rpc(input.apiUrl, headers, "bots/remove", { botId: bot.id, deleteMemories: false });
   }
 
-  const bots = await rpc<BotRow[]>(input.apiUrl, populated.headers, "bots/list");
-  const researcher = await ensureBot(input.apiUrl, populated.headers, bots, {
+  const bots = await rpc<BotRow[]>(input.apiUrl, headers, "bots/list");
+  const researcher = await ensureBot(input.apiUrl, headers, bots, {
     name: "Researcher",
     title: "Product research",
     description: "Finds evidence and keeps fixture notes organized.",
   });
-  const writer = await ensureBot(input.apiUrl, populated.headers, bots, {
+  const writer = await ensureBot(input.apiUrl, headers, bots, {
     name: "Writer",
     title: "Clear writing",
     description: "Turns research into concise drafts.",
   });
-  const support = await ensureBot(input.apiUrl, populated.headers, bots, {
+  const support = await ensureBot(input.apiUrl, headers, bots, {
     name: "Support",
     title: "Customer support",
     description: "Prepares friendly customer replies.",
   });
-  const archived = await rpc<BotRow[]>(input.apiUrl, populated.headers, "bots/listArchived");
+  const archived = await rpc<BotRow[]>(input.apiUrl, headers, "bots/listArchived");
   if (!archived.some((bot) => bot.name === "Archived fixture")) {
-    const created = await rpc<BotRow>(input.apiUrl, populated.headers, "bots/create", {
+    const created = await rpc<BotRow>(input.apiUrl, headers, "bots/create", {
       name: "Archived fixture",
       title: "Archived",
       description: "A recoverable archived bot.",
       instructions: "Remain archived.",
       notifyOnFinish: true,
     });
-    await rpc(input.apiUrl, populated.headers, "bots/archive", { botId: created.id });
+    await rpc(input.apiUrl, headers, "bots/archive", { botId: created.id });
   }
 
-  const groups = await rpc<GroupRow[]>(input.apiUrl, populated.headers, "groups/list");
+  const groups = await rpc<GroupRow[]>(input.apiUrl, headers, "groups/list");
   let group = groups.find((item) => item.name === "Launch team");
   if (!group) {
-    group = await rpc<GroupRow>(input.apiUrl, populated.headers, "groups/create", {
+    group = await rpc<GroupRow>(input.apiUrl, headers, "groups/create", {
       name: "Launch team",
       botIds: [researcher.id, writer.id, support.id],
     });
   }
-  const routines = await rpc<RoutineRow[]>(input.apiUrl, populated.headers, "routines/list", {
+  const routines = await rpc<RoutineRow[]>(input.apiUrl, headers, "routines/list", {
     botId: researcher.id,
   });
   let routine = routines.find((item) => item.name === "Weekly fixture review");
   if (!routine) {
-    routine = await rpc<RoutineRow>(input.apiUrl, populated.headers, "routines/create", {
+    routine = await rpc<RoutineRow>(input.apiUrl, headers, "routines/create", {
       botId: researcher.id,
       name: "Weekly fixture review",
       prompt: "Review the fixture launch notes and summarize the open questions.",
@@ -101,13 +99,13 @@ export async function seedIosScreenshotFixture(input: {
   }
 
   if (routine.active) {
-    await rpc(input.apiUrl, populated.headers, "routines/update", {
+    await rpc(input.apiUrl, headers, "routines/update", {
       routineId: routine.id,
       active: false,
     });
   }
 
-  const me = await rpc<MeRow>(input.apiUrl, populated.headers, "me");
+  const me = await rpc<MeRow>(input.apiUrl, headers, "me");
   const db = createDb(input.databaseUrl, { applicationName: "ios-screenshots" });
   try {
     await ensureThreadCopy(db.prisma, {
@@ -263,55 +261,9 @@ async function ensureText(
   });
 }
 
-async function ensureUser(apiUrl: string, email: string, password: string, name: string) {
-  const signup = await postAuth(apiUrl, "sign-up", { email, password, name });
-  const session = signup.ok ? signup : await postAuth(apiUrl, "sign-in", { email, password });
-  if (!session.ok || !session.token) {
-    throw new Error(
-      `Could not sign in fixture user (${session.status})${session.message ? `: ${session.message}` : ""}`,
-    );
-  }
-  return {
-    headers: {
-      authorization: `Bearer ${session.token}`,
-      cookie: session.cookie,
-      origin: "rakazo://",
-    },
-  };
-}
-
-async function postAuth(
-  apiUrl: string,
-  action: "sign-in" | "sign-up",
-  body: { email: string; password: string; name?: string },
-) {
-  const response = await fetch(`${apiUrl}/api/auth/${action}/email`, {
-    method: "POST",
-    headers: { "content-type": "application/json", origin: "rakazo://" },
-    body: JSON.stringify(body),
-  });
-  const text = await response.text();
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(text);
-  } catch {
-    parsed = undefined;
-  }
-  const message =
-    parsed &&
-    typeof parsed === "object" &&
-    "message" in parsed &&
-    typeof parsed.message === "string"
-      ? parsed.message
-      : undefined;
-  return {
-    ok: response.ok,
-    status: response.status,
-    message,
-    // The signed bearer; the server refuses the raw session token.
-    token: response.headers.get("set-auth-token") ?? "",
-    cookie: sessionCookieHeader(response),
-  };
+/** There are no accounts; requests act as the deployment owner. */
+function ownerHeaders(): Record<string, string> {
+  return { origin: "rakazo://" };
 }
 
 async function rpc<T>(

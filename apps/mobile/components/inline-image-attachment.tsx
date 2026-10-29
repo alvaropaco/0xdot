@@ -20,7 +20,7 @@ const MAX_INLINE_HEIGHT = 360;
 
 /**
  * An image attachment rendered inside a chat bubble. The artifact is fetched through the
- * authenticated RPC (the server does not serve artifacts to a bare URL), cached on disk and
+ * RPC (the server does not serve artifacts to a bare URL), cached on disk and
  * shown at its natural size, scaled down to fit the bubble. Tapping it opens the viewer.
  */
 export function InlineImageAttachment({

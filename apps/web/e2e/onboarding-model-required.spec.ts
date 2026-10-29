@@ -13,6 +13,7 @@ test("onboarding cannot continue with an empty or failed model catalog", async (
   );
   const stamp = Date.now();
   await signup(page, `catalog-${stamp}@rakazo.test`, "password12", "Model setup");
+  await page.goto("/onboarding");
 
   for (const next of ["empty", "failed"] as const) {
     if (next === "failed") {
@@ -34,6 +35,7 @@ test("Ollama Cloud onboarding requires a key before continuing", async ({ page }
   });
   const stamp = Date.now();
   await signup(page, `ollama-${stamp}@rakazo.test`, "password12", "Model setup");
+  await page.goto("/onboarding");
   await expect(page.getByRole("heading", { name: "Connect a model" })).toBeVisible();
   await page.getByRole("combobox", { name: "Provider" }).click();
   await page.getByRole("option", { name: "Ollama Cloud", exact: true }).click();

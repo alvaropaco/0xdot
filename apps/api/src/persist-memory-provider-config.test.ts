@@ -11,7 +11,6 @@ const actor = {
   userId: "user-1",
   spaceId: "ws-1",
   email: "a@b.com",
-  isDeploymentOwner: false,
 };
 const deploymentOwner = { ...actor, isDeploymentOwner: true };
 

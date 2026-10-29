@@ -9,7 +9,6 @@
     "build": {
       "dependsOn": ["^build", "^generate"],
       "env": [
-        "BETTER_AUTH_SECRET",
         "DATABASE_URL",
         "ENCRYPTION_KEY",
         "GIT_SHA",

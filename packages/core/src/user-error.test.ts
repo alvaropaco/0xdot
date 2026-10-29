@@ -1,7 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  authErrorMessage,
-  credentialIssue,
   isAbandonedRequest,
   isConnectionFailure,
   isNetworkFailure,
@@ -114,55 +112,6 @@ describe("userErrorMessage", () => {
     expect(userErrorMessage(new Error("  "), copy)).toBe(copy.fallback);
     expect(userErrorMessage({ message: "Bot not found" }, copy)).toBe(copy.fallback);
     expect(userErrorMessage("Bot not found", copy)).toBe("Bot not found");
-  });
-});
-
-describe("credentialIssue", () => {
-  it("asks for a well-formed email before a password", () => {
-    expect(credentialIssue({ email: "", password: "" })).toBe("email");
-    expect(credentialIssue({ email: "ada@", password: "secret" })).toBe("email");
-    expect(credentialIssue({ email: "ada@example", password: "secret" })).toBe("email");
-    expect(credentialIssue({ email: " ada@example.com ", password: "" })).toBe("password");
-    expect(credentialIssue({ email: "ada@example.com", password: "secret" })).toBeNull();
-  });
-
-  it("skips the password when the form has none", () => {
-    expect(credentialIssue({ email: "ada@example.com" })).toBeNull();
-  });
-});
-
-describe("authErrorMessage", () => {
-  it("maps validation issue paths to field copy", () => {
-    expect(
-      authErrorMessage(
-        {
-          code: "VALIDATION_ERROR",
-          message:
-            "[body.email] Invalid email address; [body.password] Too small: expected string to have >=1 characters",
-        },
-        authCopy,
-      ),
-    ).toBe(authCopy.email);
-    expect(
-      authErrorMessage(
-        { code: "VALIDATION_ERROR", message: "[body.password] Too small" },
-        authCopy,
-      ),
-    ).toBe(authCopy.password);
-    expect(
-      authErrorMessage({ code: "VALIDATION_ERROR", message: "[body.name] Too big" }, authCopy),
-    ).toBe(authCopy.fallback);
-  });
-
-  it("keeps the server's own auth copy and hides anything technical", () => {
-    expect(
-      authErrorMessage(
-        { code: "INVALID_EMAIL_OR_PASSWORD", message: "Invalid email or password" },
-        authCopy,
-      ),
-    ).toBe("Invalid email or password");
-    expect(authErrorMessage({ message: '{"detail":"x"}' }, authCopy)).toBe(authCopy.fallback);
-    expect(authErrorMessage(undefined, authCopy)).toBe(authCopy.fallback);
   });
 });
 

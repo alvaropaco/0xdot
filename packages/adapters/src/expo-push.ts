@@ -53,17 +53,6 @@ type PushRecord = { token: string; sessionId?: string };
 
 const PUSH_TOKEN_LOCK_WAIT_MS = 15_000;
 
-/** Registration found that its session was already gone. */
-export class PushSessionEndedError extends Error {
-  constructor() {
-    super("Push session ended");
-    this.name = "PushSessionEndedError";
-  }
-}
-
-/** Expiry of the session that registered a token, or null when that session is gone. */
-export type PushSessionExpiresAt = (sessionId: string) => Promise<Date | null>;
-
 export async function loadPushToken(dataDir: string, userId: string): Promise<string | undefined> {
   return (await readPushToken(dataDir, userId))?.token;
 }
@@ -84,35 +73,23 @@ async function readPushToken(dataDir: string, userId: string): Promise<PushRecor
 }
 
 type SavePushTokenOptions = {
-  /** Checked under the token lock, before the token is published. */
-  sessionActive?: () => Promise<boolean>;
   /** Runs under the lock after other owners are read and before they are removed. */
   beforeRemoveOthers?: () => Promise<void>;
-};
-
-type EndSessionPushTokenOptions = {
-  /** Runs after this account's record is read and before the conditional update. */
-  beforeCommit?: () => Promise<void>;
 };
 
 /**
  * A device token belongs to one account: saving it removes it from every other
  * user, so a handed-over device stops receiving the previous account's pushes.
- * The session check and the write are one locked step.
  */
 export async function savePushToken(
   dataDir: string,
   userId: string,
   token: string,
-  sessionId?: string,
   options?: SavePushTokenOptions,
 ): Promise<void> {
   const value = token.trim();
   await withPushTokenLock(dataDir, async () => {
-    if (options?.sessionActive && !(await options.sessionActive())) {
-      throw new PushSessionEndedError();
-    }
-    await writePushTokenFile(dataDir, userId, { token: value, sessionId });
+    await writePushTokenFile(dataDir, userId, { token: value });
     const dir = path.dirname(pushTokenPath(dataDir, userId));
     const claimed: Array<{ userId: string; record: PushRecord }> = [];
     for (const name of await readdir(dir)) {
@@ -144,31 +121,6 @@ async function deleteUnregisteredPushToken(
     const current = await readPushToken(dataDir, userId);
     if (!current || credentialDigest(current.token) !== tokenDigest) return;
     await compareAndSwapPushToken(dataDir, userId, current, undefined);
-  });
-}
-
-/**
- * Ends the token registered by a session that is gone. The update lands only
- * when the file still holds that session, so a replacement cannot reclaim a
- * token another account has taken.
- */
-export async function endSessionPushToken(
-  dataDir: string,
-  userId: string,
-  sessionId: string,
-  nextSessionId?: string,
-  options?: EndSessionPushTokenOptions,
-): Promise<void> {
-  await withPushTokenLock(dataDir, async () => {
-    const expected = await readPushToken(dataDir, userId);
-    if (expected?.sessionId !== sessionId) return;
-    await options?.beforeCommit?.();
-    await compareAndSwapPushToken(
-      dataDir,
-      userId,
-      expected,
-      nextSessionId ? { token: expected.token, sessionId: nextSessionId } : undefined,
-    );
   });
 }
 
@@ -445,7 +397,6 @@ function expoPushReceipts(body: unknown): Record<string, ExpoPushTicket | undefi
 }
 
 export type ExpoPushOptions = {
-  sessionExpiresAt?: PushSessionExpiresAt;
   /** Schedules the receipt check; without it receipts are not read. */
   jobs?: JobPublisher;
   /** Sent as a bearer token when the Expo project enforces enhanced push security. */
@@ -454,7 +405,6 @@ export type ExpoPushOptions = {
 };
 
 export class ExpoPushProvider implements NotificationProvider {
-  private readonly sessionExpiresAt?: PushSessionExpiresAt;
   private readonly jobs?: JobPublisher;
   private readonly accessToken?: string;
   private readonly retryDelaysMs: readonly number[];
@@ -463,7 +413,6 @@ export class ExpoPushProvider implements NotificationProvider {
     private readonly dataDir: string,
     options: ExpoPushOptions = {},
   ) {
-    this.sessionExpiresAt = options.sessionExpiresAt;
     this.jobs = options.jobs;
     this.accessToken = options.accessToken?.trim() || undefined;
     this.retryDelaysMs = options.retryDelaysMs ?? EXPO_PUSH_RETRY_DELAYS_MS;
@@ -575,31 +524,11 @@ export class ExpoPushProvider implements NotificationProvider {
   }
 
   /**
-   * A token bound to a session is delivered only while that session is still
-   * live. A missing row is left for session replacement to retarget; an expired
-   * row is removed. The token is read again after the lookup so a handover
-   * during that wait is not sent.
+   * Older releases bound a token to a sign-in session; those session rows are
+   * gone, so any recorded token is delivered as long as it is still there.
    */
   private async deliverableToken(userId: string): Promise<string | undefined> {
-    const saved = await readPushToken(this.dataDir, userId);
-    if (!saved?.token) return undefined;
-    if (!saved.sessionId) return saved.token;
-    if (!this.sessionExpiresAt) return undefined;
-    let expiresAt: Date | null;
-    try {
-      expiresAt = await this.sessionExpiresAt(saved.sessionId);
-    } catch (error) {
-      getLogger().error("push session lookup failed", error);
-      return undefined;
-    }
-    if (!expiresAt) return undefined;
-    if (expiresAt.getTime() <= Date.now()) {
-      await endSessionPushToken(this.dataDir, userId, saved.sessionId);
-      return undefined;
-    }
-    const current = await readPushToken(this.dataDir, userId);
-    if (current?.token !== saved.token || current.sessionId !== saved.sessionId) return undefined;
-    return current.token;
+    return (await readPushToken(this.dataDir, userId))?.token;
   }
 }
 

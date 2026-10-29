@@ -1,8 +1,8 @@
-import { CLIENT_IP_HEADER } from "@rakazo/auth";
 import { getLogContext, runWithLogContext } from "@rakazo/logging";
 import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
 import {
+  CLIENT_IP_HEADER,
   clientIpMiddleware,
   createClientIpResolver,
   defaultTrustedProxies,

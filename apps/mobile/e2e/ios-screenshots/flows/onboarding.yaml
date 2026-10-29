@@ -2,18 +2,16 @@ appId: com.rakazo.app
 name: Onboarding
 ---
 - runFlow:
-    file: ../subflows/sign-in.yaml
-    env:
-      RAKAZO_ACTIVE_EMAIL: ${RAKAZO_SCREENSHOT_EMPTY_EMAIL}
+    file: ../subflows/launch-app.yaml
 - extendedWaitUntil:
     visible: "Personal|Tap \\+ to create a bot"
     timeout: 20000
-- takeScreenshot: 01-empty-inbox
+- takeScreenshot: 01-inbox
 - openLink: "rakazo:///artifacts"
 - extendedWaitUntil:
     visible: "No artifacts yet|Artifacts"
     timeout: 15000
-- takeScreenshot: 02-empty-artifacts
+- takeScreenshot: 02-artifacts
 - openLink: "rakazo:///"
 - extendedWaitUntil:
     visible: "Create"

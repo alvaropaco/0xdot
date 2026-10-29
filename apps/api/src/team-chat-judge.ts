@@ -8,8 +8,6 @@ import type {
 } from "@rakazo/adapter-kit";
 import {
   formatCurrentTimeInstruction,
-  hasHostedModelCredits,
-  hostedModelCreditObserver,
   matchesFailedOAuthSecret,
   resolveModelAuth,
   secretValuesToRedact,
@@ -253,16 +251,10 @@ export class ModelTeamChatEngagementJudge implements TeamChatEngagementJudge {
       this.deps.deploymentModel;
     if (!provider || !modelId) return null;
 
-    const hosted =
-      settings?.modelCreditsEnabled &&
-      (await hasHostedModelCredits(this.deps.prisma, scope, provider));
-    if (!credential || hosted) {
+    if (!credential) {
       const apiKey =
         provider === this.deps.deploymentProvider ? this.deps.deploymentModelKey : undefined;
-      const callObserver = settings?.modelCreditsEnabled
-        ? await hostedModelCreditObserver(this.deps.prisma, scope)
-        : undefined;
-      return { model: { provider, id: modelId, ...(apiKey ? { apiKey } : {}), callObserver } };
+      return { model: { provider, id: modelId, ...(apiKey ? { apiKey } : {}) } };
     }
 
     const secret = await this.deps.prisma.secret.findFirst({

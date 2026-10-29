@@ -58,8 +58,6 @@ function trackMessageReads(pool: Pool): MessageRead[] {
 interface Actor {
   userId: string;
   spaceId: string;
-  email: string;
-  isDeploymentOwner: boolean;
 }
 
 interface SeededBot {
@@ -86,7 +84,6 @@ describePostgres("cross-space bot sidebar previews (PostgreSQL)", () => {
   const provider = "sendblue";
   const stamp = String(Date.now()).slice(-7);
   const ownerAddress = `+1557${stamp}`;
-  const signup = { signupsEnabled: undefined, signupAllowlist: undefined };
   let prisma: PrismaClient;
   let close: () => Promise<void>;
   let owner: { userId: string; spaceId: string };
@@ -105,14 +102,12 @@ describePostgres("cross-space bot sidebar previews (PostgreSQL)", () => {
       await db.pool.end();
     };
     const provisioned = await runAsSystem("test fixture", () =>
-      provisionMessagingIdentity(prisma, { provider, address: ownerAddress }, signup),
+      provisionMessagingIdentity(prisma, { provider, address: ownerAddress }),
     );
     owner = provisioned;
     actor = {
       userId: owner.userId,
       spaceId: owner.spaceId,
-      email: "space-bots-preview@example.com",
-      isDeploymentOwner: false,
     };
     await asSystem(prisma).bot.update({
       where: { id: provisioned.botId },

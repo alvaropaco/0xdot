@@ -1,11 +1,11 @@
 ---
 title: "How to self-host an AI agent in 10 minutes"
-description: "Install Rakazo with the published Docker images, create an account, connect a model, and keep the database on your machine. Image pulls vary, and a public server takes longer."
+description: "Install Rakazo with the published Docker images, connect a model, and keep the database on your machine. Image pulls vary, and a public server takes longer."
 published: "2026-10-07"
 updated: "2026-10-07"
 author: "Elie Steinbock"
 category: "guides"
-tldr: "The published-image installer is a short script: Docker, Compose, curl, and OpenSSL, then an account and a model. Pull time depends on your connection. A public hostname, TLS, and a secrets review are a longer job than the first local chat."
+tldr: "The published-image installer is a short script: Docker, Compose, curl, and OpenSSL, then a model. Pull time depends on your connection. A public hostname, TLS, and a secrets review are a longer job than the first local chat."
 sources:
   - label: "Rakazo self-hosting guide"
     href: "https://github.com/elie222/rakazo/blob/main/docs/self-host.md"
@@ -47,7 +47,7 @@ comparison:
   rows:
     - topic: "Published images"
       cells:
-        - "One installer in an empty directory, then an account and a model."
+        - "One installer in an empty directory, then a model."
         - "A measured ten-minute promise. Image pulls vary."
     - topic: "This computer"
       cells:
@@ -63,7 +63,7 @@ comparison:
         - "Required for running the published images."
 ---
 
-The title is the shape of the local install, not a stopwatch result. Rakazo's published images start from one script. Docker then downloads the images, and that download is the part that varies. When the app is up, you create an account, connect a model, and the first chat is the product. A hostname on the public internet, TLS, and a review of secrets are a separate piece of work.
+The title is the shape of the local install, not a stopwatch result. Rakazo's published images start from one script. Docker then downloads the images, and that download is the part that varies. When the app is up, you connect a model, and the first chat is the product. A hostname on the public internet, TLS, and a review of secrets are a separate piece of work.
 
 This page follows the [self-hosting guide](https://github.com/elie222/rakazo/blob/main/docs/self-host.md) and the [self-hosted AI agent page](/self-hosted-ai-agent/). Those stay the reference if a command changes.
 
@@ -100,15 +100,15 @@ The installer downloads the Compose file and `.env.images.example`, creates `.en
 
 If you want to set the public URL, the image tag, or an optional provider before the first start, run `bash install-images.sh --prepare-only`, edit `.env`, then run `bash install-images.sh` again. The flags `--prepare-only` and `--local` can be combined.
 
-`SANDBOX_PROVIDER` defaults to `docker`. The images Compose file runs a sandbox supervisor on the internal network and pulls the computer image. Signup and local Docker computers work without an E2B account. The published-images stack requires `SANDBOX_SUPERVISOR_TOKEN` for every provider. Leave it empty and Compose fails closed rather than starting a supervisor with no token.
+`SANDBOX_PROVIDER` defaults to `docker`. The images Compose file runs a sandbox supervisor on the internal network and pulls the computer image. Local Docker computers work without an E2B account. The published-images stack requires `SANDBOX_SUPERVISOR_TOKEN` for every provider. Leave it empty and Compose fails closed rather than starting a supervisor with no token.
 
-Open `http://127.0.0.1:5173`. The first registered user becomes the deployment owner. Connect a model in the app, or set `OPENROUTER_API_KEY` before startup. Local Docker computers are on by default.
+Open `http://127.0.0.1:5173` and you are in. Connect a model in the app, or set `OPENROUTER_API_KEY` before startup. Local Docker computers are on by default.
 
 The image pull is the variable part. A fast link and a warm cache finish sooner than a laptop on a slow network pulling the app, the computer image, and Postgres for the first time. Treat "10 minutes" as a description of how small the installer is, then look at your own pull.
 
 ## Create a bot
 
-After the account exists, the product is chat. A new bot asks for a name, a title, and a description, and you pick whether it shares the team computer or gets a private one. The form below is the real create-bot screen, filled with demo data. Nothing in the shot is a customer account.
+With the app up, the product is chat. A new bot asks for a name, a title, and a description, and you pick whether it shares the team computer or gets a private one. The form below is the real create-bot screen, filled with demo data. Nothing in the shot is customer data.
 
 <figure class="post-figure">
   <img src="/graphics/chat/create-bot.png" width="1200" height="800" alt="The new bot form in Rakazo, filled with a demo bot named Inbox." />
@@ -156,17 +156,17 @@ Optional connectors can attach Slack, WhatsApp, Telegram, iMessage via Sendblue,
 
 Use the same installer on a VPS when bots should keep running after you close a laptop. Images Compose binds the web app to loopback `127.0.0.1:5173`. Terminate TLS on the host and proxy there. Do not publish port 3100. The web server proxies `/api`.
 
-Set `RAKAZO_HOST` to the hostname. Set `BETTER_AUTH_URL`, `WEB_ORIGIN`, and `API_URL` to that same `https://` origin. For a remote computer instead of local Docker, set `SANDBOX_PROVIDER` to `e2b`, `daytona`, `createos`, or `boat` and add that provider's key.
+Set `RAKAZO_HOST` to the hostname. Set `WEB_ORIGIN` and `API_URL` to that same `https://` origin. For a remote computer instead of local Docker, set `SANDBOX_PROVIDER` to `e2b`, `daytona`, `createos`, or `boat` and add that provider's key.
 
 A minimal Caddy site is a reverse proxy to `127.0.0.1:5173`. Replace the example host with yours. Desktop clients should use **Existing instance** with the `https://` address. HTTP is accepted only for loopback and private LAN addresses. **This computer** in the desktop app installs the published images with Docker Compose on that machine, on port 45173 by default so it can sit next to a dev server.
 
-In the mobile app, tap **Use a custom server** on the sign-in screen and enter the same HTTPS origin as `WEB_ORIGIN`.
+In the mobile app, open **Settings → Server** and enter the same HTTPS origin as `WEB_ORIGIN`.
 
-This server path is why a public install is not the same job as the local script. You are choosing a hostname, a TLS terminator, who may sign up, and where secrets live. The [secrets checklist](https://github.com/elie222/rakazo/blob/main/docs/self-host-secrets.md) names the values and how to recover them. The [restricted-network guide](https://github.com/elie222/rakazo/blob/main/docs/self-host-restricted-network.md) covers mirrors when the installer or the image pull is blocked.
+This server path is why a public install is not the same job as the local script. You are choosing a hostname, a TLS terminator, and where secrets live. The [secrets checklist](https://github.com/elie222/rakazo/blob/main/docs/self-host-secrets.md) names the values and how to recover them. The [restricted-network guide](https://github.com/elie222/rakazo/blob/main/docs/self-host-restricted-network.md) covers mirrors when the installer or the image pull is blocked.
 
 ## Install from source only if you are developing
 
-Clone the repository, copy `.env.example` to `.env`, and set `POSTGRES_PASSWORD` and `POSTGRES_APP_PASSWORD` to URI-safe random values that also appear in `DATABASE_MIGRATION_URL` and `DATABASE_URL`. Set `BETTER_AUTH_SECRET`, `ENCRYPTION_KEY`, and `SCREEN_PROXY_SECRET` to independent long random values. Docker sandboxes need their own `SANDBOX_SUPERVISOR_TOKEN`. Keep these in `.env`, not in git.
+Clone the repository, copy `.env.example` to `.env`, and set `POSTGRES_PASSWORD` and `POSTGRES_APP_PASSWORD` to URI-safe random values that also appear in `DATABASE_MIGRATION_URL` and `DATABASE_URL`. Set `ENCRYPTION_KEY` and `SCREEN_PROXY_SECRET` to independent long random values. Docker sandboxes need their own `SANDBOX_SUPERVISOR_TOKEN`. Keep these in `.env`, not in git.
 
 For host-side development with Docker Desktop, set `SANDBOX_CONTROL_VIA_LOOPBACK=true` so the supervisor publishes its control service on a loopback port. Leave that unset when the supervisor runs inside Compose. `docker compose down -v` deletes Postgres data.
 
@@ -174,7 +174,7 @@ The published images are enough to run Rakazo. The source path is for changing i
 
 ## What to skip on the first afternoon
 
-Backups, upgrades, signup allowlists, SMTP, and host hardening are in the full guide because they matter on a server other people can reach. They are not required to see a bot answer on loopback. Read them before you put the deployment on a hostname.
+Backups, upgrades, and host hardening are in the full guide because they matter on a server other people can reach. They are not required to see a bot answer on loopback. Read them before you put the deployment on a hostname.
 
 If downloads fail, stop and use the restricted-network guide instead of retrying the same curl. If a secret was committed or pasted into a chat, rotate it from the checklist rather than editing it in place and hoping.
 
@@ -184,4 +184,4 @@ The desktop app's **This computer** option is the same published images, started
 
 OpenClaw and Hermes Agent are also open source and can run on hardware you control. Their install docs describe a gateway or a desktop app and a CLI, plus config files under a home directory. Rakazo's published-image path is the script above, then chat. The [comparison of those three](/blog/openclaw-vs-hermes-vs-rakazo/) is about that difference in shape, not a race.
 
-If the first chat on loopback is the goal, stay on the published images, create the owner account, and connect one model. If the goal is a public URL, budget time for TLS and the secrets checklist after the installer finishes.
+If the first chat on loopback is the goal, stay on the published images and connect one model. If the goal is a public URL, budget time for TLS and the secrets checklist after the installer finishes.

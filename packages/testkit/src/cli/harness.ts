@@ -178,7 +178,6 @@ async function main() {
         FakeComposioClient,
         listPiCatalog,
         DestinationEmulator,
-        EmailEmulator,
         PipedreamConnector,
         ThirdPartyConnectorEmulator,
       },
@@ -201,7 +200,6 @@ async function main() {
       },
       { fetch: thirdParties.fetch, resolveHostname: thirdParties.resolveHostname },
     );
-    const email = new EmailEmulator();
     const handles = await createApp({
       databaseUrl,
       modelConnectionFetch: createModelConnectionFixtureFetch(listPiCatalog()),
@@ -209,7 +207,6 @@ async function main() {
       composio: new ComposioConnector({ client: new FakeComposioClient() }),
       connectors: [new DestinationEmulator()],
       pipedream,
-      email,
       remoteConnectors: {
         fetch: thirdParties.fetch,
         resolveHostname: thirdParties.resolveHostname,
@@ -220,9 +217,6 @@ async function main() {
     const requestWaiters = new Set<() => void>();
     const server = serve({
       fetch: async (request) => {
-        if (new URL(request.url).pathname === "/__e2e/emails") {
-          return Response.json(email.sent, { headers: { "cache-control": "no-store" } });
-        }
         activeRequests += 1;
         try {
           return await handles.app.fetch(request);

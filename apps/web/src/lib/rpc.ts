@@ -5,7 +5,6 @@ import type { AppContract, ProductEvent } from "@rakazo/contracts";
 import { CLIENT_BUILD_HEADER, formatClientBuild } from "@rakazo/contracts";
 import { displayIdentityEvent, displayIdentityResult } from "@rakazo/core";
 import { clientCorrelationHeaders, responseCorrelation } from "@rakazo/logging/monitoring";
-import { authClient } from "./auth";
 import { CLIENT_BUILD } from "./client-build";
 import { i18n } from "./i18n";
 import { identityLabels } from "./identity-display";
@@ -42,7 +41,7 @@ export function clearSpaceSelection(): void {
   try {
     window.localStorage.removeItem(SPACE_STORAGE_KEY);
   } catch {
-    // Ignore storage failures on sign-out / reset paths.
+    // Ignore storage failures on reset paths.
   }
 }
 
@@ -82,7 +81,6 @@ const link = new RPCLink<RpcClientContext>({
     try {
       response = await fetch(request, {
         headers,
-        credentials: "include",
         // Keep cancellation attached directly to fetch rather than only a cloned Request.
         signal: options.signal,
       });
@@ -92,20 +90,10 @@ const link = new RPCLink<RpcClientContext>({
       throw error;
     }
     // Server exceptions are reported by the API; do not report every HTTP failure twice.
-    recheckSessionOnUnauthorized(response.status);
     for (const listener of responseListeners) listener(response);
     return response;
   },
 });
-
-/**
- * A 401 means the session behind the app's last known user may be gone, but Better Auth only
- * rechecks it on focus or a timer, so a backgrounded window would keep its stale user (and every
- * screen that polls) indefinitely. Recheck now: a signed-out answer routes to sign-in.
- */
-export function recheckSessionOnUnauthorized(status: number): void {
-  if (status === 401) authClient.$store.notify("$sessionSignal");
-}
 
 export type RpcClient = ContractRouterClient<AppContract, RpcClientContext>;
 
@@ -127,7 +115,7 @@ const displayLink = {
 
 export const rpc: RpcClient = createORPCClient(displayLink);
 
-/** Keep late async follow-up requests in the shell's original auth boundary. */
+/** Keep late async follow-up requests in the shell's original space. */
 export function createSpaceRpc(spaceId: string | null): typeof rpc {
   return createORPCClient({
     call: (path, input, options) =>

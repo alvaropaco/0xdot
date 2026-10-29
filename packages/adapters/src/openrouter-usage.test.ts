@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { OpenRouterUsageLookup, openRouterInferenceFetch } from "./openrouter-usage.js";
+import { openRouterInferenceFetch } from "./openrouter-usage.js";
 
 describe("OpenRouter attribution and usage recovery", () => {
   it("sends the normal user id and Rakazo attribution while preserving request controls", async () => {
@@ -63,41 +63,5 @@ describe("OpenRouter attribution and usage recovery", () => {
     expect(headers.get("X-New")).toBe("kept");
     expect(JSON.parse(String(sent.body))).toMatchObject({ user: "user_fixture" });
     expect(request.bodyUsed).toBe(false);
-  });
-  it("recovers authoritative costs and separates cache reads from uncached input", async () => {
-    const lookup = new OpenRouterUsageLookup("fixture", async () =>
-      Response.json({
-        data: {
-          id: "gen_fixture",
-          total_cost: 0.0123,
-          native_tokens_prompt: 100,
-          native_tokens_cached: 40,
-          native_tokens_completion: 20,
-          native_tokens_reasoning: 5,
-        },
-      }),
-    );
-    await expect(lookup.lookupUsage("gen_fixture")).resolves.toMatchObject({
-      providerRequestId: "gen_fixture",
-      costUsd: 0.0123,
-      costSource: "provider-reported",
-      inputTokens: 60,
-      outputTokens: 20,
-      cacheReadTokens: 40,
-      totalTokens: 120,
-    });
-  });
-  it("never treats missing usage as free and rejects mismatched generation ids", async () => {
-    await expect(
-      new OpenRouterUsageLookup(
-        "fixture",
-        async () => new Response(null, { status: 404 }),
-      ).lookupUsage("gen_fixture"),
-    ).resolves.toBeNull();
-    await expect(
-      new OpenRouterUsageLookup("fixture", async () =>
-        Response.json({ data: { id: "other", total_cost: 0 } }),
-      ).lookupUsage("gen_fixture"),
-    ).rejects.toThrow("different generation");
   });
 });

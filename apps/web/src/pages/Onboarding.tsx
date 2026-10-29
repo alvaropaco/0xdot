@@ -48,7 +48,6 @@ import {
   modelPreflightTestingLabel,
 } from "../components/ModelConnectionPreflightNotice";
 import { ModelHeadersEditor } from "../components/ModelHeadersEditor";
-import { SignupSurvey } from "../components/SignupSurvey";
 import { useCopyText } from "../lib/copy-text";
 import { providerDisplayName } from "../lib/localized-provider-hint";
 import type { ModelCatalogEntry } from "../lib/model-auth";
@@ -141,15 +140,11 @@ export function OnboardingPage() {
   const { t } = useLingui();
   const navigate = useNavigate();
   const fieldId = useId();
-  // The URL holds the survey and model steps, so /onboarding/survey and /onboarding/model open directly.
+  // The URL holds the model step, so /onboarding/model opens directly.
   const { step: routeStep } = useParams();
-  const linkedStep = routeStep === "survey" || routeStep === "model" ? routeStep : undefined;
+  const linkedStep = routeStep === "model" ? routeStep : undefined;
   const [creatingBot, setCreatingBot] = useState(false);
-  const [surveyDone, setSurveyDone] = useState(false);
-  const step = creatingBot ? "bot" : surveyDone ? "loading" : (linkedStep ?? "loading");
-  const [billingEnabled, setBillingEnabled] = useState(false);
-  // The step after the survey; null until me loads.
-  const [afterSurvey, setAfterSurvey] = useState<"model" | "bot" | null>(null);
+  const step = creatingBot ? "bot" : (linkedStep ?? "loading");
   const [catalog, setCatalog] = useState<ModelCatalogEntry[]>([]);
   const [provider, setProvider] = useState("");
   const [providerAuth, setProviderAuth] = useState<ProviderAuth | undefined>();
@@ -201,14 +196,10 @@ export function OnboardingPage() {
   useEffect(() => {
     void Promise.all([rpc.me(), rpc.models.list().catch(() => [])])
       .then(([me, models]) => {
-        setBillingEnabled(me.billingEnabled);
         setCatalog(models);
-        const next = me.needsModel ? "model" : "bot";
-        setAfterSurvey(next);
-        if (!linkedStep) goTo(me.needsSignupSurvey ? "survey" : next);
+        if (!linkedStep) goTo(me.needsModel ? "model" : "bot");
       })
       .catch(() => {
-        setAfterSurvey("bot");
         if (!linkedStep) goTo("bot");
       });
     return () => {
@@ -216,15 +207,9 @@ export function OnboardingPage() {
     };
   }, []);
 
-  useEffect(() => {
-    if (!surveyDone || !afterSurvey) return;
-    setSurveyDone(false);
-    goTo(afterSurvey);
-  }, [surveyDone, afterSurvey]);
-
-  function goTo(next: "survey" | "model" | "bot") {
+  function goTo(next: "model" | "bot") {
     if (next === "bot") setCreatingBot(true);
-    navigate(next === "bot" ? "/onboarding" : `/onboarding/${next}`, { replace: true });
+    navigate(next === "bot" ? "/onboarding" : "/onboarding/model", { replace: true });
   }
 
   const providers = useMemo(() => {
@@ -547,7 +532,6 @@ export function OnboardingPage() {
             <Spinner aria-label={t`Loading…`} />
           </p>
         ) : null}
-        {step === "survey" ? <SignupSurvey onDone={() => setSurveyDone(true)} /> : null}
         {step === "model" ? (
           <div>
             <h1 className="text-[32px] font-medium text-foreground">
@@ -1016,19 +1000,6 @@ export function OnboardingPage() {
               <Button disabled={!canSaveModel} onClick={() => void saveModel()}>
                 <Trans>Continue</Trans>
               </Button>
-              {billingEnabled ? (
-                <Button
-                  variant="ghost"
-                  onClick={() =>
-                    void rpc.billing
-                      .selectFunding({ funding: "credits" })
-                      .then(() => window.location.assign("/onboarding"))
-                      .catch(() => setError(t`Could not open billing`))
-                  }
-                >
-                  <Trans>Use Rakazo credits</Trans>
-                </Button>
-              ) : null}
             </div>
           </div>
         ) : null}

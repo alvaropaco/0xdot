@@ -70,7 +70,7 @@ bash install-images.sh
 インストーラーは Compose ファイルをダウンロードし、ランダムなシークレットを含む `.env` を作成して Rakazo を起動します。
 再実行時は既存の `.env` をそのまま残します。
 
-[http://127.0.0.1:5173](http://127.0.0.1:5173) を開き、アカウントを作成してモデルを接続します。
+[http://127.0.0.1:5173](http://127.0.0.1:5173) を開き、モデルを接続すればすぐに使えます。
 ローカルの Docker コンピューターはデフォルトで有効です。リモートプロバイダーとして `e2b`、`daytona`、`createos`、`boat`、`railway`
 も、対応する API キーを設定すれば利用できます。
 
@@ -115,7 +115,7 @@ cp .env.example .env
 `POSTGRES_PASSWORD` と `POSTGRES_APP_PASSWORD` に `openssl rand -hex 16` で生成した 2 つの値を設定し、
 それらを `DATABASE_MIGRATION_URL` と `DATABASE_URL` に記入します。アプリは専用の
 `rakazo_app` ログインで接続し、行レベルセキュリティが適用されます。マイグレーションはオーナーとして実行されます
-（[データベースロール](docs/self-host.md#database-roles)）。`BETTER_AUTH_SECRET`、`ENCRYPTION_KEY`、`SCREEN_PROXY_SECRET` には
+（[データベースロール](docs/self-host.md#database-roles)）。`ENCRYPTION_KEY` と `SCREEN_PROXY_SECRET` には
 それぞれ独立した長いランダム値を設定します。Docker サンドボックスには専用の
 `SANDBOX_SUPERVISOR_TOKEN` も必要です。`OPENROUTER_API_KEY` を設定するか、オンボーディング中に
 対応するモデルプロバイダーを接続することもできます。
@@ -157,7 +157,7 @@ pnpm dev
 `ALTER ROLE` や名前の変更でその場で変更してください。ボリュームを作り直すのは、バックアップを取った後（またはデータが
 不要な場合）だけにしてください。`docker compose down -v` は Postgres のすべてのデータを削除します。
 
-[http://127.0.0.1:5173](http://127.0.0.1:5173) を開き、アカウントを作成してモデルを接続し、
+[http://127.0.0.1:5173](http://127.0.0.1:5173) を開き、モデルを接続し、
 最初のボットを作成します。
 
 デプロイ、プロバイダーの選択、バックアップ、アップグレードについては
@@ -231,7 +231,7 @@ Docker 互換 CLI を試すには、アプリを起動する前に `RAKAZO_DOCKE
 Web（および Electron 内）の UI は、**Settings → Language**（設定 → 言語）で English、Deutsch、한국어、Türkçe、हिन्दी、
 Português (Brasil)、简体中文、Español、Русский、Français、עברית、Nederlands、日本語 に対応しています。
 Expo アプリには English、简体中文、Русский、Deutsch、Nederlands、日本語 のカタログが含まれ、
-**Account → Language**（アカウント → 言語）にこの 6 つが表示されます。保存された選択がない場合は、デバイスの言語または
+**Settings → Language**（設定 → 言語）にこの 6 つが表示されます。保存された選択がない場合は、デバイスの言語または
 `EXPO_PUBLIC_DEFAULT_UI_LOCALE` が最初のカタログを決めます。
 マーケティング用ホームページ（`apps/www`）は、フッターの言語リンクから en/de/ko/zh/ja で表示できます（`/`、`/de/`、
 `/ko/`、`/zh/`、`/ja/`）。その他のマーケティングページは英語のままです。ロシア語のマーケティング用ホームページと、

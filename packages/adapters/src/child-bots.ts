@@ -77,8 +77,6 @@ export async function spawnBot(
   const actor: Actor = {
     userId: input.spawnedBy.userId,
     spaceId: input.spawnedBy.spaceId,
-    email: "",
-    isDeploymentOwner: false,
   };
   let duplicate = false;
   let created: Pick<Bot, "id" | "name" | "title" | "threadId">;

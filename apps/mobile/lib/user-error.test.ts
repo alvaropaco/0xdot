@@ -8,7 +8,6 @@ describe("loadFailureKind", () => {
   it("names the cause when the error carries one", () => {
     expect(loadFailureKind(new TypeError("Network request failed"))).toBe("offline");
     expect(loadFailureKind(withStatus(503))).toBe("offline");
-    expect(loadFailureKind(withStatus(401))).toBe("session");
     expect(loadFailureKind(withStatus(500))).toBe("server");
   });
 

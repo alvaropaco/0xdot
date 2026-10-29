@@ -3,7 +3,6 @@ import { RPCHandler } from "@orpc/server/fetch";
 import type {
   AgentContextStrategy,
   AgentRuntime,
-  BillingProvider,
   ConnectorProvider,
   JobPublisher,
   ManagedConnectorProvider,
@@ -12,7 +11,6 @@ import type {
   NotificationProvider,
   RealtimeFanout,
   SandboxProvider,
-  TransactionalEmailProvider,
 } from "@rakazo/adapter-kit";
 import {
   SandboxRateLimitError,
@@ -37,7 +35,6 @@ import {
   createMessagingContextLoader,
   createMessagingTeamChatHistory,
   createMessagingTeamChatSender,
-  createModelCreditReconciler,
   createProductAnalytics,
   createRunExecutor,
   createRunSandbox,
@@ -45,12 +42,7 @@ import {
   createSecretStore,
   createTicketChangeNotifier,
   createWebProvider,
-  deletePushToken,
-  deploymentModelUsageLookup,
-  destroyBot,
-  EmailEmulator,
   ExpoPushProvider,
-  endSessionPushToken,
   GraphileJobPublisher,
   InMemoryJobQueue,
   InMemoryRealtimeFanout,
@@ -72,21 +64,14 @@ import {
   RunJobPublisher,
   reconcileCloudAgents,
   reconcileComputerUpdates,
-  removePiUserSessions,
-  resolveDeploymentModel,
   ScriptedAgentRuntime,
-  SmtpEmailProvider,
   SpaceMemoryProviderResolver,
-  StripeBillingProvider,
   sandboxProviderOptionsFromEnv,
-  stripeBillingConfigFromEnv,
   toTeamChatInbound,
   withSecretPersistence,
 } from "@rakazo/adapters";
-import { createAuth, isBlockedAuthPath, loopbackTwinOrigins } from "@rakazo/auth";
-import type { Actor, AuthCapabilities } from "@rakazo/contracts";
+import type { Actor } from "@rakazo/contracts";
 import { SERVER_BUILD_HEADER } from "@rakazo/contracts";
-import { signupPolicyFromEnv } from "@rakazo/core";
 import type { Pool, PrismaClient } from "@rakazo/db";
 import {
   contentEncryptionOf,
@@ -96,11 +81,11 @@ import {
   createSecurityEventPruner,
   createThreadEvents,
   describeRowSecurity,
+  ensureDeploymentOwner,
   IsolationError,
   installSecurityEventStore,
   parsePositiveInteger,
   provisionMessagingIdentity,
-  pushSessionExpiresAt,
   requireMembership,
   rowSecurityWarning,
   runAsSystem,
@@ -119,17 +104,13 @@ import { requestLogging } from "@rakazo/logging/hono";
 import { MarkdownMemoryStore } from "@rakazo/memory";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
-import { mountAppAssociation, nativePasskeys } from "./app-association.js";
 import { storeInboundAttachment } from "./artifacts.js";
-import { createBillingService } from "./billing.js";
-import { mountBillingRoutes } from "./billing-webhook.js";
 import { clientBuildMiddleware, readDeployedWebBuild } from "./client-build.js";
 import {
   clientIpMiddleware,
   createClientIpResolver,
   defaultTrustedProxies,
   requestClientIp,
-  withClientIp,
 } from "./client-ip.js";
 import { cspReportRoutes } from "./csp-report.js";
 import { mountDiagramScript } from "./diagram-script.js";
@@ -148,7 +129,6 @@ import { monitoringRoutes } from "./monitoring.js";
 import { mountApiRequestBodyLimits } from "./request-body-limit.js";
 import { createRouter } from "./router.js";
 import { mountScreenTarget } from "./screen-proxy.js";
-import { createAuthResponseAudit } from "./security-audit.js";
 import { isDeferredReservationLost, TeamChatBridge } from "./team-chat-bridge.js";
 import { ModelTeamChatEngagementJudge } from "./team-chat-judge.js";
 import {
@@ -181,7 +161,6 @@ export interface AppHandles {
   composio?: ComposioProvider;
   connectors: ConnectorRegistry;
   messaging?: MessagingSurface;
-  email?: TransactionalEmailProvider;
   notifications: NotificationProvider;
   executor: ReturnType<typeof createRunExecutor>;
   runtime: AgentRuntime;
@@ -206,9 +185,7 @@ type CreateAppOverrides = Partial<AppEnv> & {
   connectors?: ConnectorProvider[];
   pipedream?: ManagedConnectorProvider;
   messaging?: MessagingSurface;
-  email?: TransactionalEmailProvider;
   notifications?: NotificationProvider;
-  billing?: BillingProvider;
   remoteConnectors?: RemoteConnectorDependencies;
   modelConnectionFetch?: typeof fetch;
   logger?: Logger;
@@ -225,9 +202,7 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
     connectors: connectorOverrides = [],
     pipedream: pipedreamOverride,
     messaging: messagingOverride,
-    email: emailOverride,
     notifications: notificationsOverride,
-    billing: billingOverride,
     remoteConnectors,
     modelConnectionFetch,
     logger: loggerOverride,
@@ -281,22 +256,9 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
   });
   const ticketBoardEnabled = env.ticketBoardEnabled;
   const boardEvents = createBoardEvents(realtime);
-  const environmentSignupPolicy = signupPolicyFromEnv(env);
-  // Mirror the env policy for the previous release during a rolling deploy.
-  await prisma.deploymentSettings.upsert({
-    where: { id: "default" },
-    create: {
-      id: "default",
-      signupsEnabled: environmentSignupPolicy.enabled,
-      signupAllowlist: environmentSignupPolicy.allowlist.join(","),
-      signupPolicyInitialized: true,
-    },
-    update: {
-      signupsEnabled: environmentSignupPolicy.enabled,
-      signupAllowlist: environmentSignupPolicy.allowlist.join(","),
-      signupPolicyInitialized: true,
-    },
-  });
+  // One owner acts on every request; its identity and personal space are
+  // provisioned here so per-user columns and row-level security stay unchanged.
+  const owner = await ensureDeploymentOwner(prisma);
 
   const jobKind = env.wakeupDriver;
   const inMemoryJobs = jobKind === "memory" ? new InMemoryJobQueue() : undefined;
@@ -386,42 +348,6 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
     })
       ? new ChatSdkMessagingSurface(messagingPlatforms)
       : undefined);
-  const localEmailEmulator =
-    !emailOverride && !env.smtpUrl && env.emailEmulator
-      ? new EmailEmulator((message) => {
-          getLogger().info("email emulator captured message", {
-            "email.subject": message.subject,
-          });
-        })
-      : undefined;
-  if (localEmailEmulator && !isLoopbackHost(env.apiHost)) {
-    throw new Error("EMAIL_EMULATOR requires API_HOST to be a loopback host");
-  }
-  const email: TransactionalEmailProvider | undefined =
-    emailOverride ??
-    (env.smtpUrl
-      ? new SmtpEmailProvider({ url: env.smtpUrl, from: env.emailFrom ?? "" })
-      : localEmailEmulator);
-  const stripeBilling = stripeBillingConfigFromEnv(env);
-  const billingProvider: BillingProvider | undefined =
-    billingOverride ?? (stripeBilling ? new StripeBillingProvider(stripeBilling) : undefined);
-  const billing = billingProvider
-    ? createBillingService({
-        prisma,
-        provider: billingProvider,
-        webOrigin: env.webOrigin,
-        managedModelsAvailable: resolveDeploymentModel().configured,
-      })
-    : undefined;
-  const modelCreditsEnabled = billing?.modelCreditsEnabled ?? false;
-  await prisma.deploymentSettings.upsert({
-    where: { id: "default" },
-    create: {
-      id: "default",
-      modelCreditsEnabled,
-    },
-    update: { modelCreditsEnabled },
-  });
   const installed = new InstalledConnectorProvider(
     prisma,
     secrets,
@@ -455,76 +381,9 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
   const notifications =
     notificationsOverride ??
     new ExpoPushProvider(env.dataDir, {
-      sessionExpiresAt: (sessionId) => pushSessionExpiresAt(prisma, sessionId),
       jobs,
       accessToken: env.expoAccessToken,
     });
-  const auth = createAuth(prisma, {
-    analytics,
-    passwordAuth: env.passwordAuth,
-    breachedPasswordCheck: env.breachedPasswordCheck,
-    oidc: env.oidc,
-    secret: env.authSecret,
-    baseURL: env.authUrl,
-    webOrigin: env.webOrigin,
-    signupsEnabled: env.signupsEnabled,
-    signupAllowlist: env.signupAllowlist,
-    email,
-    logger: {
-      level: "error",
-      log: (_level, _message, ...args) =>
-        getLogger().error(
-          "auth.request.failed",
-          args.find((arg) => arg instanceof Error),
-        ),
-    },
-    onEmailError: (error) => getLogger().error("transactional email delivery failed", error),
-    extraOrigins: MOBILE_AUTH_ORIGINS,
-    androidAppCertFingerprints: env.passkeyAndroidCertFingerprints,
-    beforeDeleteUser: async (userId) => {
-      // First, so a provider failure aborts deletion before anything is destroyed.
-      await billing?.cancelForDeletedUser(userId);
-      const bots = await prisma.bot.findMany({
-        where: { userId },
-        select: { id: true, userId: true, spaceId: true, name: true, archivedAt: true },
-      });
-      await Promise.all(
-        bots.map((bot) =>
-          destroyBot(
-            { prisma, sandbox, home, jobs, artifacts, dataDir: env.dataDir },
-            bot,
-            {
-              operationId: `account-delete:${userId}`,
-              traceId: `account-delete:${userId}`,
-              spaceId: bot.spaceId,
-              userId,
-              botId: bot.id,
-              signal: new AbortController().signal,
-            },
-            { deleteMemories: true },
-          ),
-        ),
-      );
-      await removePiUserSessions(env.dataDir, userId);
-      await deletePushToken(env.dataDir, userId).catch((error) =>
-        getLogger().error("push token removal failed", error),
-      );
-    },
-    // The session change already happened, so a token file failure must not fail sign-out.
-    afterDeleteSession: async (session) => {
-      await endSessionPushToken(env.dataDir, session.userId, session.id).catch((error) =>
-        getLogger().error("push token removal failed", error),
-      );
-    },
-    afterReplaceSession: async (previous, session) => {
-      await endSessionPushToken(env.dataDir, session.userId, previous.id, session.id).catch(
-        (error) => getLogger().error("push token session update failed", error),
-      );
-    },
-  });
-  const oauthTokenUpgrade = auth
-    .encryptStoredOAuthTokens()
-    .catch((error) => getLogger().error("oauth token encryption upgrade failed", error));
   // One provider instance so emulator launches and polls share the same Map.
   const cloudAgent = createCloudAgentConnection({
     CLOUD_AGENT_PROVIDER: env.cloudAgentProvider,
@@ -536,7 +395,6 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
   // resolution alike, so a list call warms the run path in this process.
   const codexCatalog = new CodexCatalogCache();
   const executor = createRunExecutor({
-    billingEnabled: modelCreditsEnabled,
     maxUploadSizeBytes: env.maxUploadSizeBytes,
     contextStrategy,
     prisma,
@@ -613,10 +471,6 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
         jobs,
         events,
         notifications,
-        reconcileModelCredits: createModelCreditReconciler({
-          prisma,
-          lookup: deploymentModelUsageLookup(),
-        }),
         reconcileCloudAgents: () => reconcileCloudAgents({ prisma, jobs, cloudAgent }),
         reconcileComputerUpdates: () => reconcileComputerUpdates({ prisma, jobs }),
         reconcileSecurityEventRetention: createSecurityEventPruner(
@@ -635,7 +489,6 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
     events,
     ticketChanges,
     boardEvents,
-    auth,
     jobs,
     sandbox,
     memory,
@@ -652,7 +505,6 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
     modelConnectionFetch,
     artifacts,
     dataDir: env.dataDir,
-    billing,
     messaging: {
       enabled: Boolean(messaging),
       providers: messaging?.platforms().map((platform) => platform.provider) ?? [],
@@ -696,84 +548,37 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
       exposeHeaders: [SERVER_BUILD_HEADER],
     }),
   );
-  // Session and account replies must never be stored by a client or an HTTP cache.
-  for (const path of ["/api/auth/*", "/rpc/*"]) {
-    app.use(path, async (c, next) => {
-      await next();
-      c.header("cache-control", "no-store");
-    });
-  }
-  app.get("/api/auth/capabilities", (c) => {
-    return c.json({
-      sso: env.oidc
-        ? { name: env.oidc.name, availability: auth.ssoAvailability() ?? "checking" }
-        : null,
-      passwordAuth: env.passwordAuth !== false,
-      passwordReset: env.passwordAuth !== false && Boolean(email),
-      resetUrl:
-        env.passwordAuth !== false && email ? new URL("/reset-password", env.webOrigin).href : null,
-      emailCode: auth.emailCodeSignIn,
-      billing: Boolean(billing),
-      passkeyRpId: auth.passkeyRpId,
-      nativePasskeys: nativePasskeys(env, auth.passkeyRpId),
-    } satisfies AuthCapabilities);
+  // Streaming replies must never be stored by a client or an HTTP cache.
+  app.use("/rpc/*", async (c, next) => {
+    await next();
+    c.header("cache-control", "no-store");
   });
-  mountAppAssociation(app, env);
-  if (localEmailEmulator && env.nodeEnv === "development") {
-    app.get(
-      "/api/dev/emails",
-      () =>
-        new Response(JSON.stringify(localEmailEmulator.sent), {
-          headers: { "cache-control": "no-store", "content-type": "application/json" },
-        }),
-    );
-  }
   app.route(
     "/",
-    monitoringRoutes(
-      env.browserMonitoring,
-      fetch,
-      async (request) => (await auth.api.getSession({ headers: request.headers }))?.user.id,
-    ),
+    monitoringRoutes(env.browserMonitoring, fetch, async () => owner.userId),
   );
   app.route("/", cspReportRoutes(requestClientIp));
   mountApiRequestBodyLimits(app, env.maxUploadSizeBytes);
   mountScreenTarget(app, prisma, env.screenProxySecret);
   mountDiagramScript(app);
-  const auditAuthResponse = createAuthResponseAudit();
-  // Account and session tables, signup bootstrap and account deletion span tenants;
-  // webhooks authenticate a bot or provider, then resolve the tenant from it.
+  // Webhooks authenticate a bot or provider, then resolve the tenant from it.
   for (const [path, reason] of [
-    ["/api/auth/*", "authentication"],
     ["/api/v1/bots/*", "bot webhook"],
     ["/api/v1/messaging/*", "messaging webhook"],
     ["/api/v1/phone/*", "messaging webhook"],
   ] as const) {
     app.use(path, (_c, next) => runAsSystem(reason, next));
   }
-  app.on(["GET", "POST"], "/api/auth/*", async (c) => {
-    const path = new URL(c.req.url).pathname.replace("/api/auth", "");
-    if (isBlockedAuthPath(path)) {
-      return c.json({ error: "Not available in version 1" }, 404);
-    }
-    const ip = requestClientIp(c);
-    const response = await auth.handler(withClientIp(emptyAuthBodyAsJson(c.req.raw), ip));
-    await auditAuthResponse(path, ip, response);
-    return response;
-  });
   mountLocalComputerHost(app, {
     token: env.desktopStackToken,
     sandboxProvider: env.sandboxProvider,
     prisma,
   });
   const requestSession = async (request: Request) => {
-    // The bearer plugin turns a signed `Authorization: Bearer` into the session cookie.
-    const session = await auth.api.getSession({ headers: request.headers });
-    if (!session?.user) return null;
     const actor = await actorFromMembership(
-      requireMembership(prisma, session.user.id, request.headers.get("x-rakazo-space-id")),
+      requireMembership(prisma, owner.userId, request.headers.get("x-rakazo-space-id")),
     );
-    return actor && { actor, sessionId: session.session.id };
+    return actor && { actor };
   };
   const sessionActor = async (request: Request) => (await requestSession(request))?.actor ?? null;
   app.use(
@@ -793,16 +598,7 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
       prefix: "/rpc",
       context: {
         actor,
-        sessionId: session?.sessionId,
         signal: c.req.raw.signal,
-        // Same user in the same space, so leaving the space also ends a stream.
-        // A database failure rejects this check; only a missing membership is unauthorized.
-        stillAuthorized: async () => {
-          const current = await sessionActor(c.req.raw);
-          return Boolean(
-            actor && current?.userId === actor.userId && current.spaceId === actor.spaceId,
-          );
-        },
       },
     });
     if (matched) return c.newResponse(response.body, response);
@@ -814,14 +610,6 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
     return actor;
   });
   mountWebhookHttpRoutes(app, { prisma, secrets, events, jobs });
-  if (billing && billingProvider) {
-    mountBillingRoutes(app, {
-      billing,
-      provider: billingProvider,
-      webOrigin: env.webOrigin,
-      authenticate: sessionActor,
-    });
-  }
   // Shared with stop so a shutdown during retry delays does not restart polling.
   let messagingStopped = false;
   let clearMessagingRetryDelay: (() => void) | undefined;
@@ -839,12 +627,8 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
       prisma,
       events,
       jobs,
-      provision: (request, policyEnv) => provisionMessagingIdentity(prisma, request, policyEnv),
+      provision: (request) => provisionMessagingIdentity(prisma, request),
       openSignup: env.messagingOpenSignup,
-      signupPolicy: {
-        signupsEnabled: env.signupsEnabled,
-        signupAllowlist: env.signupAllowlist,
-      },
       acknowledge: receipts?.acknowledge,
     } satisfies Parameters<typeof createMessagingInboundHandler>[0];
     const inbound = createMessagingInboundHandler(inboundDeps);
@@ -1097,8 +881,6 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
         composio: Boolean(stack.composio),
         pipedream: Boolean(pipedream),
         messaging: Boolean(messaging),
-        email: email?.describe().id ?? null,
-        billing: billingProvider?.describe().id ?? null,
         jobs: jobKind,
         realtime: realtime.describe().id,
         secrets: secrets.describe(),
@@ -1122,7 +904,6 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
     composio: stack.composio,
     connectors: stack.connector,
     messaging,
-    email,
     notifications,
     executor,
     runtime,
@@ -1131,7 +912,6 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
     stop: async () => {
       // Abort in-flight continueRun boot waits before draining jobs so stop() cannot sit
       // on waitForComputerReady for the full boot-wait window during shared Postgres journeys.
-      auth.disposeOidcDiscovery();
       shutdown.abort();
       oauthLogins.abortAll();
       messagingStopped = true;
@@ -1149,9 +929,7 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
       await settleWithTimeout(teamChatInitTask, TEAM_CHAT_STARTUP_SHUTDOWN_MS);
       await messaging?.shutdown?.();
       await teamChatBridge?.stop();
-      await email?.drain?.();
       await reconciler?.stop();
-      await oauthTokenUpgrade;
       await jobs.close();
       await secrets.close();
       await realtime.close();
@@ -1165,20 +943,35 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
   };
 }
 
-export function isTrustedOrigin(
-  origin: string,
-  env: Pick<AppEnv, "webOrigin" | "apiUrl" | "authUrl">,
-) {
+export function isTrustedOrigin(origin: string, env: Pick<AppEnv, "webOrigin" | "apiUrl">) {
   if (!origin) return true;
   if (origin.startsWith("rakazo://")) return true;
   const allowed = new Set(
-    [env.webOrigin, env.apiUrl, env.authUrl, ...MOBILE_AUTH_ORIGINS].flatMap(originVariants),
+    [env.webOrigin, env.apiUrl, ...MOBILE_AUTH_ORIGINS].flatMap(originVariants),
   );
   return allowed.has(origin);
 }
 
 function isLoopbackHost(host: string): boolean {
   return host === "localhost" || host === "127.0.0.1" || host === "::1" || host === "[::1]";
+}
+
+/** Same-scheme/port localhost and 127.0.0.1 variants when `origin` is loopback. */
+function loopbackTwinOrigins(origin: string): string[] {
+  try {
+    const url = new URL(origin);
+    if (!isLoopbackHost(url.hostname)) return [];
+    const twins: string[] = [];
+    for (const host of ["localhost", "127.0.0.1"] as const) {
+      if (host === url.hostname) continue;
+      const twin = new URL(origin);
+      twin.hostname = host;
+      twins.push(twin.origin);
+    }
+    return twins;
+  } catch {
+    return [];
+  }
 }
 
 function originVariants(origin: string): string[] {
@@ -1212,24 +1005,6 @@ export async function actorFromMembership(membership: Promise<Actor>): Promise<A
     if (error instanceof IsolationError) return null;
     throw error;
   }
-}
-
-/**
- * Some clients POST auth actions with an empty body (older phone sign-out, the web deletion code);
- * Better Auth rejects that before the endpoint runs.
- */
-function emptyAuthBodyAsJson(request: Request) {
-  if (
-    request.method !== "POST" ||
-    request.headers.get("content-length") !== "0" ||
-    request.headers.has("transfer-encoding")
-  ) {
-    return request;
-  }
-  const headers = new Headers(request.headers);
-  headers.set("content-type", "application/json");
-  headers.delete("content-length");
-  return new Request(request, { headers, body: "{}" });
 }
 
 /**

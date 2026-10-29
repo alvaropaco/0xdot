@@ -77,8 +77,8 @@ export const SELF_HOST_LEAD =
   "Published images need Docker Engine 26+ (API 1.45+ for bot home volume subpaths), the Compose plugin, curl, and OpenSSL.";
 
 export const SELF_HOST_AFTER = [
-  "On this computer, open http://127.0.0.1:5173, create an account, and connect a model. That address is only on the machine running Rakazo. Local Docker computers are on by default.",
-  "On a server, run the installer with --prepare-only, set the public HTTPS origin, and create the owner account before anyone else can reach it. The self-hosting guide covers that setup. The desktop app can install the stack on this computer, or connect to an instance you already run.",
+  "On this computer, open http://127.0.0.1:5173 and connect a model. That address is only on the machine running Rakazo. Local Docker computers are on by default.",
+  "On a server, run the installer with --prepare-only and set the public HTTPS origin before anyone can reach it. The self-hosting guide covers that setup. The desktop app can install the stack on this computer, or connect to an instance you already run.",
 ] as const;
 
 export const GROK_UPDATED = "October 12, 2026";
@@ -164,8 +164,8 @@ export const GROK_SECTIONS = [
     heading: "Setup, then the chat",
     paragraphs: [
       "Published images need Docker Engine 26 or newer, the Compose plugin, curl, and OpenSSL. You do not need Node.js for that path. A source checkout needs a supported Node.js line and pnpm, plus Docker. The desktop app can install the published images on this computer, or connect to an instance you already run.",
-      "On this computer, open the local web app, create an account, and connect a model. The first registered user becomes the deployment owner. Local Docker computers are on by default. From there the product is the chat. You do not keep a gateway process running, and you do not edit a config file to change the bot's routines.",
-      "On a server, the installer can stop before startup so you can set the public HTTPS origin and create the owner account before anyone else can reach it. The self-hosting guide covers backups, upgrades, secrets, and restricted networks. Voice, if you want it, uses a key you bring for ElevenLabs, OpenAI, Cartesia, or Fish Audio.",
+      "On this computer, open the local web app and connect a model. Local Docker computers are on by default. From there the product is the chat. You do not keep a gateway process running, and you do not edit a config file to change the bot's routines.",
+      "On a server, the installer can stop before startup so you can set the public HTTPS origin before anyone else can reach it. The self-hosting guide covers backups, upgrades, secrets, and restricted networks. Voice, if you want it, uses a key you bring for ElevenLabs, OpenAI, Cartesia, or Fish Audio.",
       "The [self-hosted AI agent](/self-hosted-ai-agent/) page is that install. [How to self-host an AI agent](/blog/self-host-an-ai-agent/) walks through the published images.",
     ],
   },

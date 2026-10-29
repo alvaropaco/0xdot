@@ -6,7 +6,6 @@ const actor = {
   spaceId: "space-1",
   userId: "user-1",
   email: "test@example.test",
-  isDeploymentOwner: false,
 };
 
 function fixture(activeIds: string[]) {

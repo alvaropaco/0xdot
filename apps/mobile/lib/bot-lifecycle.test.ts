@@ -90,10 +90,7 @@ it("keeps deletion bound to the archived bot's space through confirmation", asyn
   expect(rpc).toHaveBeenCalledWith(
     "bots/remove",
     { botId: "bot-b", deleteMemories: false },
-    {
-      requestContext,
-      skipSpaceAuthRecovery: true,
-    },
+    { requestContext },
   );
   expect(deleted).toHaveBeenCalledOnce();
 });

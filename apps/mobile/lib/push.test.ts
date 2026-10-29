@@ -47,7 +47,6 @@ import { Platform } from "react-native";
 import type { MobileMe } from "./api";
 import { rpc, selectInitialSpace } from "./api";
 import { registerPushToken } from "./push";
-import { restoreSessionToken } from "./session";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -85,7 +84,6 @@ beforeEach(async () => {
   vi.mocked(Notifications.requestPermissionsAsync).mockImplementation(
     () => native.run(() => undefined).then(() => permission.promise) as never,
   );
-  await restoreSessionToken("fake-session");
 });
 
 afterEach(() => {

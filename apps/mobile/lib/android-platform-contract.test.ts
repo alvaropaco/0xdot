@@ -18,7 +18,7 @@ describe("Android mobile platform contract", () => {
     const thread = readFileSync(resolve(mobileRoot, "app/thread.tsx"), "utf8");
     expect(service).toContain("android.requestPromotedOngoing");
     expect(service).toContain("liveStatusIcon(primary, avatarStyle)");
-    expect(service).toContain('rpc(endpoint, token, spaceId, "me"');
+    expect(service).toContain('rpc(endpoint, spaceId, "me"');
     expect(service).not.toContain("showStarting");
     expect(service).not.toContain("catch (_: IOException) {\n        stop()");
     expect(service).toContain("Expo push owns background completion and attention delivery");
@@ -26,7 +26,8 @@ describe("Android mobile platform contract", () => {
     expect(service).toContain("if (!isAllowedNotificationEndpoint(endpoint)) throw IOException");
     expect(module).toContain("android.settings.APP_NOTIFICATION_PROMOTION_SETTINGS");
     expect(module).not.toContain("settings.copy(liveConnection = false)");
-    expect(module).toContain("RakazoNotificationService.clearSession(context)");
+    expect(module).not.toContain("clearSession");
+    expect(module).toContain('AsyncFunction("resume")');
     expect(module).toContain("isAllowedNotificationEndpoint(endpoint)");
     expect(module).toContain("storage.spaceId = spaceId");
     expect(allowlist).toContain("isAllowedNotificationEndpoint");
@@ -43,7 +44,11 @@ describe("Android mobile platform contract", () => {
     expect(service).toContain("alertedAttention.clear()");
     expect(service).toContain("SEEN_RUNS_SPACE_ID");
     expect(service).toContain(
-      "getSharedPreferences(STATE_PREFERENCES, MODE_PRIVATE).edit().clear()",
+      [
+        "historyWrites.persistIfChanged(seeded, nextSeen) { seen ->",
+        "              getSharedPreferences(STATE_PREFERENCES, MODE_PRIVATE).edit()",
+        "                .putStringSet(SEEN_RUNS, seen)",
+      ].join("\n"),
     );
     expect(service).toContain("val generation = synchronized(sessionLock)");
     expect(service).toContain("ACTION_THREAD_CHANGED");
@@ -76,9 +81,6 @@ describe("Android mobile platform contract", () => {
     expect(live).toContain("setOpenNotificationThread");
     expect(thread).toContain("if (!navigation.isFocused() || !notificationThreadId) return");
     expect(thread).toContain("    }, [botId, notificationThreadId]),\n  );");
-    expect(service).toContain(
-      "fun clearSession(context: Context) {\n      synchronized(sessionLock)",
-    );
     expect(service).not.toContain("private fun postCompletion(");
     expect(service).toContain('"rakazo://group-thread?groupId=');
     expect(service).toMatch(/&spaceId=\$\{Uri\.encode\(run\.spaceId\)\}/);

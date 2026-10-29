@@ -5,7 +5,7 @@ Google Play, Apple team, or private EAS submission identifiers. Those values
 belong in the release operator's private configuration.
 
 Self-hosters normally do not need to publish their own mobile app: the Rakazo
-client can select a compatible server from the sign-in screen. If you distribute
+client can select a compatible server from Settings → Server. If you distribute
 your own branded build, use your own Expo and store accounts.
 
 ## Configure a build
@@ -35,7 +35,7 @@ EAS can prompt for store identity interactively. For automated submission, add
 the required identifiers through a private CI configuration or a short-lived
 local change that is never committed.
 
-Before submission, verify the production API, account deletion, sign-in,
+Before submission, verify the production API, the server picker,
 notifications, store privacy answers, age rating, screenshots, support page,
 and review account on a physical device.
 

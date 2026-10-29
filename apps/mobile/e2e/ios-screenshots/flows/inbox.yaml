@@ -2,9 +2,7 @@ appId: com.rakazo.app
 name: Inbox
 ---
 - runFlow:
-    file: ../subflows/sign-in.yaml
-    env:
-      RAKAZO_ACTIVE_EMAIL: ${RAKAZO_SCREENSHOT_EMAIL}
+    file: ../subflows/launch-app.yaml
 - extendedWaitUntil:
     visible: ".*Researcher.*"
     timeout: 20000

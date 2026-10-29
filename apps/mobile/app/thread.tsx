@@ -170,7 +170,6 @@ import {
   blockText,
   copyableMobileMessageText,
   currentApiBase,
-  loadSessionToken,
   mergeMobileSnapshot,
   messagingProviderLabel,
   mobileThreadRefreshResult,
@@ -200,7 +199,11 @@ import { cancelFocusPrompt, focusPromptThreadActive } from "../lib/focus-prompt"
 import { helperHeaderOffset, helperOpenTarget } from "../lib/helper-header-offset";
 import { t, useI18n } from "../lib/i18n";
 import { isInlineImageMimeType } from "../lib/inline-image";
-import { integrationsCacheScope, isIntegrationsScopeCurrent } from "../lib/integrations-cache";
+import {
+  integrationsCacheScope,
+  isIntegrationsScopeCurrent,
+  loadVerifiedIntegrationsScope,
+} from "../lib/integrations-cache";
 import { useKeyboardLayout } from "../lib/keyboard-layout";
 import { KeyboardScrollBack } from "../lib/keyboard-scroll-back";
 import { saveLastBotId } from "../lib/last-bot";
@@ -254,12 +257,6 @@ import {
 import { secretDestinationLabel } from "../lib/secret-destination";
 import { secretFieldTraits } from "../lib/secret-field-traits";
 import { selectableTextFromMarkdown } from "../lib/selectable-text";
-import {
-  currentReadySessionGeneration,
-  currentSessionGeneration,
-  loadVerifiedIntegrationsScope,
-  subscribeSessionGeneration,
-} from "../lib/session";
 import { setInboxHidden, useSplitView } from "../lib/split-view";
 import { threadEdgeOptions, threadHeaderClearance, threadHeaderFloats } from "../lib/thread-edges";
 import type { SendAttempt } from "../lib/thread-feedback";
@@ -281,11 +278,7 @@ import type { UserBubble } from "../lib/user-bubble";
 import { withUserBubble } from "../lib/user-bubble";
 import { errorText } from "../lib/user-error";
 import { speakQueue, speakText } from "../lib/voice";
-import {
-  loadCallCallerName,
-  probeProviderTranscribe,
-  resolveVoiceCallPlan,
-} from "../lib/voice-call-entry";
+import { probeProviderTranscribe, resolveVoiceCallPlan } from "../lib/voice-call-entry";
 
 type PendingAttachment = PickedAttachment & { threadKey: string };
 type AskAction = NonNullable<Extract<MessageBlock, { kind: "ask" }>["actions"]>[number];
@@ -342,13 +335,8 @@ function speakableMessageText(message: MobileMessage): string {
 }
 
 export default function ThreadRoute() {
-  const generation = useSyncExternalStore(subscribeSessionGeneration, currentSessionGeneration);
-  const ready = useSyncExternalStore(subscribeSessionGeneration, currentReadySessionGeneration);
-  const [owner, setOwner] = useState<{ key: string; generation: number; userId: string } | null>(
-    null,
-  );
+  const [owner, setOwner] = useState<{ key: string; userId: string } | null>(null);
   useEffect(() => {
-    if (generation !== ready) return;
     const apiBase = currentApiBase();
     let cancelled = false;
     let notified = false;
@@ -357,17 +345,8 @@ export default function ThreadRoute() {
       void loadVerifiedIntegrationsScope()
         .then((saved) => (saved?.apiBase === apiBase ? saved : integrationsCacheScope()))
         .then((scope) => {
-          if (
-            !cancelled &&
-            scope &&
-            generation === currentSessionGeneration() &&
-            apiBase === currentApiBase()
-          )
-            setOwner({
-              key: JSON.stringify([apiBase, scope.userId]),
-              generation,
-              userId: scope.userId,
-            });
+          if (!cancelled && scope && apiBase === currentApiBase())
+            setOwner({ key: JSON.stringify([apiBase, scope.userId]), userId: scope.userId });
         })
         .catch((error) => {
           if (!cancelled && !notified) Alert.alert(t("Could not continue"), errorText(error));
@@ -379,7 +358,7 @@ export default function ThreadRoute() {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [generation, ready]);
+  }, []);
   const tokens = useMobileTokens();
   const { t } = useI18n();
   const router = useRouter();
@@ -431,13 +410,19 @@ export default function ThreadRoute() {
   }, [activeSpaceId, focused, spaceId]);
 
   if (request.action === "show" && !focusSync.switchFailed)
-    return (
-      <>
-        {owner?.generation !== generation ? <ActivityIndicator color={tokens.foreground} /> : null}
-        <View style={{ flex: 1, display: owner?.generation === generation ? "flex" : "none" }}>
-          {owner ? <Thread key={owner.key} sessionEpoch={ready} userId={owner.userId} /> : null}
-        </View>
-      </>
+    return owner ? (
+      <Thread key={owner.key} userId={owner.userId} />
+    ) : (
+      <View
+        style={{
+          flex: 1,
+          alignItems: "center",
+          justifyContent: "center",
+          backgroundColor: tokens.background,
+        }}
+      >
+        <ActivityIndicator color={tokens.foreground} />
+      </View>
     );
   return (
     <View
@@ -464,7 +449,7 @@ export default function ThreadRoute() {
   );
 }
 
-function Thread({ sessionEpoch, userId }: { sessionEpoch: number; userId: string }) {
+function Thread({ userId }: { userId: string }) {
   const keyboardLayout = useKeyboardLayout();
   const colorScheme = useResolvedAppearance();
   const tokens = mobileTokens();
@@ -1290,27 +1275,15 @@ function Thread({ sessionEpoch, userId }: { sessionEpoch: number; userId: string
     const targetBotId = botId;
     const targetGroupId = groupId;
     const epoch = historyEpoch.current;
-    const origin = {
-      sessionGeneration: currentSessionGeneration(),
-      selectionId: selectedSpaceId(),
-    };
+    const origin = { selectionId: selectedSpaceId() };
     const generation = ++refreshGeneration.current;
     const next = await rpc<MobileSnapshot>(
       "threads/get",
       targetGroupId ? { groupId: targetGroupId } : { botId: targetBotId! },
     );
-    if (
-      origin.sessionGeneration !== currentSessionGeneration() ||
-      origin.selectionId !== selectedSpaceId()
-    )
-      return;
+    if (origin.selectionId !== selectedSpaceId()) return;
     const scope = await liveSavedChatsScope();
-    if (
-      !scope ||
-      scope.sessionGeneration !== origin.sessionGeneration ||
-      scope.selectionId !== origin.selectionId ||
-      !isIntegrationsScopeCurrent(scope)
-    )
+    if (!scope || scope.selectionId !== origin.selectionId || !isIntegrationsScopeCurrent(scope))
       return;
     // Only the newest started refresh may commit. Threads also receive live
     // events; an older snapshot must not overwrite those while a newer refresh
@@ -1651,7 +1624,7 @@ function Thread({ sessionEpoch, userId }: { sessionEpoch: number; userId: string
 
   useEffect(() => {
     liveCursor.current = null;
-  }, [botId, groupId, sessionEpoch]);
+  }, [botId, groupId]);
 
   useEffect(() => {
     // Resume the same chat from its applied cursor so pinned and expanded windows catch up.
@@ -1660,7 +1633,6 @@ function Thread({ sessionEpoch, userId }: { sessionEpoch: number; userId: string
     historyEpoch.current += 1;
     const abort = new AbortController();
     const subscriptionGeneration = ++liveSubscriptionGeneration.current;
-    const sessionGeneration = currentSessionGeneration();
     liveSubscribed.current = false;
     showSavedThread(abort.signal);
     void (async () => {
@@ -1684,7 +1656,7 @@ function Thread({ sessionEpoch, userId }: { sessionEpoch: number; userId: string
       let cursor = liveCursor.current ?? next?.cursor ?? -1;
       liveCursor.current = cursor;
       let retryMs = 250;
-      while (!abort.signal.aborted && sessionGeneration === currentSessionGeneration()) {
+      while (!abort.signal.aborted) {
         let failure: unknown;
         try {
           liveSubscribed.current = true;
@@ -1692,7 +1664,7 @@ function Thread({ sessionEpoch, userId }: { sessionEpoch: number; userId: string
             groupId ? { groupId } : { botId: botId! },
             cursor,
             (event) => {
-              if (abort.signal.aborted || sessionGeneration !== currentSessionGeneration()) return;
+              if (abort.signal.aborted) return;
               cursor = Math.max(cursor, event.seq ?? -1);
               retryMs = 250;
               if (
@@ -1769,7 +1741,7 @@ function Thread({ sessionEpoch, userId }: { sessionEpoch: number; userId: string
     return () => {
       abort.abort();
     };
-  }, [botId, groupId, foreground, readOnly, markReadIfVisible, refreshMentionBots, sessionEpoch]);
+  }, [botId, groupId, foreground, readOnly, markReadIfVisible, refreshMentionBots]);
 
   useEffect(() => () => pendingSave.current?.(), [botId, groupId]);
 
@@ -1857,7 +1829,7 @@ function Thread({ sessionEpoch, userId }: { sessionEpoch: number; userId: string
         setError(errorText(err, t("Could not open message")));
       },
     );
-  }, [botId, groupId, messageId, sessionEpoch]);
+  }, [botId, groupId, messageId]);
 
   useEffect(() => {
     setPendingAttachments((current) => attachmentsForThread(current, threadKey));
@@ -1875,7 +1847,7 @@ function Thread({ sessionEpoch, userId }: { sessionEpoch: number; userId: string
       return;
     }
     router.push({
-      pathname: "/account",
+      pathname: "/settings",
       params: action === "settings-usage" ? { focus: "usage" } : undefined,
     });
   }
@@ -1965,19 +1937,7 @@ function Thread({ sessionEpoch, userId }: { sessionEpoch: number; userId: string
   function afterDelivered(attempt: SendAttempt) {
     const { initialBotTarget, botTarget, groupTarget, reroutedToGroup, plan } = attempt.payload;
     if (initialBotTarget) cancelFocusPrompt(initialBotTarget);
-    const generation = currentSessionGeneration();
-    const apiBase = currentApiBase();
-    const spaceId = selectedSpaceId();
-    void loadSessionToken()
-      .then((token) => {
-        if (
-          generation === currentSessionGeneration() &&
-          apiBase === currentApiBase() &&
-          spaceId === selectedSpaceId()
-        )
-          return resumeLiveNotifications(apiBase, token, spaceId ?? "");
-      })
-      .catch(() => undefined);
+    void resumeLiveNotifications(currentApiBase(), selectedSpaceId() ?? "").catch(() => undefined);
     if (
       attempt.payload.originThreadKey !== (activeGroupId.current ?? activeBotId.current) ||
       !navigation.isFocused()
@@ -2098,15 +2058,10 @@ function Thread({ sessionEpoch, userId }: { sessionEpoch: number; userId: string
     [botId, displayName, mentionBots, snap?.members, visibleMessages],
   );
 
-  /** A bot the caller was put through to answers ("Max here. Hi Riley."); a fresh call opens with hello. */
-  function callGreeting(botName: string, callerName: string | undefined, switchedHere: boolean) {
-    if (switchedHere) {
-      return callerName
-        ? t("{bot} here. Hi {name}.", { bot: botName, name: callerName })
-        : t("{bot} here.", { bot: botName });
-    }
-    return callerName
-      ? t("Hello {name}, {bot} here.", { name: callerName, bot: botName })
+  /** A bot the caller was put through to answers ("Max here."); a fresh call opens with hello. */
+  function callGreeting(botName: string, switchedHere: boolean) {
+    return switchedHere
+      ? t("{bot} here.", { bot: botName })
       : t("Hello, {bot} here.", { bot: botName });
   }
 
@@ -2118,14 +2073,11 @@ function Thread({ sessionEpoch, userId }: { sessionEpoch: number; userId: string
     voiceCallStarting.current = true;
     const loadVoiceStatus = () => rpc<{ ready: boolean; transcribe: boolean }>("voice/status");
     try {
-      const [plan, callerName] = await Promise.all([
-        resolveVoiceCallPlan({
-          loadDeviceVoiceEnabled,
-          dictationAvailable,
-          loadVoiceStatus,
-        }),
-        loadCallCallerName(() => rpc<MobileMe>("me")),
-      ]);
+      const plan = await resolveVoiceCallPlan({
+        loadDeviceVoiceEnabled,
+        dictationAvailable,
+        loadVoiceStatus,
+      });
       if (activeBotId.current !== targetBotId) return;
       if (plan.kind === "settings") {
         router.push("/voice");
@@ -2148,7 +2100,7 @@ function Thread({ sessionEpoch, userId }: { sessionEpoch: number; userId: string
         botName,
         botColor: mentionBots.find((bot) => bot.id === targetBotId)?.color,
         transcribe: plan.transcribe,
-        greeting: callGreeting(botName, callerName, switchedHere),
+        greeting: callGreeting(botName, switchedHere),
         switchBot: (text) => {
           const target = findSwitchTarget(text, mentionBotsRef.current);
           if (!target || target.id === targetBotId) return undefined;

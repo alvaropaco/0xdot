@@ -1,6 +1,5 @@
 import type { AgentRuntimeEvent, UsageOperationKind } from "@rakazo/adapter-kit";
 import type { PrismaClient } from "./generated/prisma/client.js";
-import { hasFinalModelCost, settleModelCreditsTx } from "./model-credits.js";
 
 type UsageEvent = Extract<AgentRuntimeEvent, { type: "usage" }>;
 export interface UsageAttribution {
@@ -13,14 +12,21 @@ export interface UsageAttribution {
   operationKind?: UsageOperationKind;
 }
 
-/** Usage is financial history, independent from message clearing or bot deletion. */
+/** Usage is independent from message clearing or bot deletion. */
 export async function recordUsage(
   prisma: Pick<PrismaClient, "$transaction">,
   event: UsageEvent,
   attribution: UsageAttribution,
-  reconcile = false,
 ) {
-  const observation = {
+  const data = {
+    provider: event.provider,
+    model: event.model,
+    spaceId: attribution.spaceId,
+    userId: attribution.userId,
+    botId: attribution.botId,
+    runId: attribution.runId,
+    operationId: attribution.operationId,
+    parentRunId: attribution.parentRunId ?? attribution.runId,
     providerRequestId: event.providerRequestId ?? null,
     inputTokens: event.inputTokens,
     outputTokens: event.outputTokens,
@@ -36,51 +42,11 @@ export async function recordUsage(
       ? JSON.parse(JSON.stringify(event.pricingSnapshot))
       : undefined,
     usageSource: event.usageSource ?? null,
-  };
-  const data = {
-    provider: event.provider,
-    model: event.model,
-    spaceId: attribution.spaceId,
-    userId: attribution.userId,
-    botId: attribution.botId,
-    runId: attribution.runId,
-    operationId: attribution.operationId,
-    parentRunId: attribution.parentRunId ?? attribution.runId,
-    ...observation,
     callId: event.callId ?? null,
     operationKind: attribution.operationKind ?? event.operationKind ?? "answer",
     agentId: event.agentId ?? null,
   };
-  return prisma.$transaction(async (tx) => {
+  await prisma.$transaction(async (tx) => {
     await tx.usageRecord.createMany({ data: [data], skipDuplicates: true });
-    const entry = event.callId
-      ? await tx.modelCreditEntry.findUnique({ where: { callId: event.callId } })
-      : null;
-    if (!entry) return;
-    if (
-      entry.userId !== attribution.userId ||
-      entry.spaceId !== attribution.spaceId ||
-      entry.provider !== event.provider ||
-      entry.model !== event.model
-    )
-      throw new Error("Usage attribution does not match its credit reservation");
-    if (!entry.pending && entry.reconciliationState === "complete" && !reconcile) return;
-    let usage = await tx.usageRecord.findUniqueOrThrow({ where: { callId: event.callId! } });
-    if (reconcile) {
-      usage = await tx.usageRecord.update({
-        where: { id: usage.id },
-        data: observation,
-      });
-    }
-    await settleModelCreditsTx(tx, entry.id, usage.costUsd, reconcile);
-    const complete = hasFinalModelCost(usage);
-    await tx.modelCreditEntry.update({
-      where: { id: entry.id },
-      data: {
-        reconciliationState: complete ? "complete" : "pending",
-        ...(usage.providerRequestId ? { providerRequestId: usage.providerRequestId } : {}),
-        ...(complete ? { nextReconcileAt: null } : {}),
-      },
-    });
   });
 }

@@ -754,13 +754,6 @@ export interface NotificationMessage {
 }
 
 /** A product-authored transactional email, independent of its delivery vendor. */
-export interface TransactionalEmail {
-  to: string;
-  subject: string;
-  text: string;
-  html?: string;
-}
-
 export type MessagingReceipt = "typing" | "reaction";
 
 export interface MessagingCapabilities {
@@ -1108,68 +1101,4 @@ export interface AutoReviewResult {
   decision: AutoReviewDecision;
   reason?: string;
   model: string;
-}
-
-/** Provider-neutral subscription state. Vendor-specific states map onto these. */
-export type BillingSubscriptionStatus =
-  | "trialing"
-  | "active"
-  | "past_due"
-  | "incomplete"
-  /** No access; the subscription resumes from the billing portal, so a new checkout would double-bill. */
-  | "unpaid"
-  | "paused"
-  | "canceled";
-
-export interface BillingPrice {
-  /** Minor currency units, e.g. cents. */
-  amount: number;
-  currency: string;
-  interval: "day" | "week" | "month" | "year";
-  intervalCount: number;
-}
-
-/** Full subscription state for one billing customer, re-fetched from the provider on every sync. */
-export interface BillingCreditPurchase {
-  /** Stable provider payment identity, including any subsequent refund adjustment. */
-  id: string;
-  amountCents: number;
-  /** Subscription service-period end; absent for non-expiring top-ups. */
-  expiresAt?: string;
-}
-
-export interface BillingCreditCheckoutRequest {
-  customerId: string;
-  amountCents: number;
-  monthly: boolean;
-  successUrl: string;
-  cancelUrl: string;
-}
-
-export interface BillingSubscriptionSnapshot {
-  creditAmountCents?: number;
-  subscriptionId: string;
-  subscriptionItemId: string;
-  priceId: string;
-  status: BillingSubscriptionStatus;
-  seats: number;
-  trialEndsAt: Date | null;
-  currentPeriodEndsAt: Date | null;
-  cancelAtPeriodEnd: boolean;
-  endedAt: Date | null;
-}
-
-export interface BillingCheckoutRequest {
-  customerId: string;
-  seats: number;
-  /** Omitted when the customer has already used its trial. */
-  trialDays?: number;
-  successUrl: string;
-  cancelUrl: string;
-}
-
-/** Optional provider adapter for recovering authoritative cost after an interrupted call. */
-export interface ModelUsageLookup {
-  provider: string;
-  lookupUsage(providerRequestId: string): Promise<AgentUsage | null>;
 }

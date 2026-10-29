@@ -23,7 +23,6 @@ describePostgres("new bot avatars (PostgreSQL)", () => {
     userId: owner.userId,
     spaceId: owner.spaceId,
     email: "avatars@example.com",
-    isDeploymentOwner: false,
   });
   const botInput = (name: string) => ({
     name,
@@ -41,11 +40,7 @@ describePostgres("new bot avatars (PostgreSQL)", () => {
       await db.pool.end();
     };
     owner = await runAsSystem("test fixture", () =>
-      provisionMessagingIdentity(
-        prisma,
-        { provider, address },
-        { signupsEnabled: undefined, signupAllowlist: undefined },
-      ),
+      provisionMessagingIdentity(prisma, { provider, address }),
     );
   });
 

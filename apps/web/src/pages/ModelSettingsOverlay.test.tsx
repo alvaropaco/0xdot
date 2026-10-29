@@ -173,10 +173,7 @@ const compatibleEntry = {
 function account(provider: string, modelId: string) {
   return {
     userId: "user-1",
-    email: "ada@example.test",
-    name: "Ada",
     spaceId: "space-1",
-    isDeploymentOwner: false,
     needsModel: false,
     defaultProvider: provider,
     defaultModel: modelId,
@@ -186,7 +183,6 @@ function account(provider: string, modelId: string) {
     canChooseHostComputer: false,
     sandboxProvider: "docker",
     avatarStyle: "organic" as const,
-    billingEnabled: false,
     ticketBoardEnabled: false,
     phoneCallsEnabled: false,
   };

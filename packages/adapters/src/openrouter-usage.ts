@@ -1,4 +1,3 @@
-import type { AgentUsage, ModelUsageLookup } from "@rakazo/adapter-kit";
 import { z } from "zod";
 
 /** Attribution is restricted to OpenRouter inference endpoints, never compatible/custom hosts. */
@@ -38,43 +37,3 @@ const generationSchema = z.object({
     native_tokens_reasoning: tokens,
   }),
 });
-
-export class OpenRouterUsageLookup implements ModelUsageLookup {
-  readonly provider = "openrouter";
-  constructor(
-    private readonly apiKey: string,
-    private readonly fetcher: typeof fetch = globalThis.fetch,
-  ) {}
-  async lookupUsage(providerRequestId: string): Promise<AgentUsage | null> {
-    const response = await this.fetcher(
-      `https://openrouter.ai/api/v1/generation?id=${encodeURIComponent(providerRequestId)}`,
-      {
-        headers: { Authorization: `Bearer ${this.apiKey}` },
-        redirect: "error",
-        signal: AbortSignal.timeout(5_000),
-      },
-    );
-    if (response.status === 404) return null;
-    if (!response.ok) throw new Error(`OpenRouter usage lookup failed (${response.status})`);
-    const { data } = generationSchema.parse(await response.json());
-    if (data.id !== providerRequestId) throw new Error("Provider returned a different generation");
-    if (data.total_cost === null) return null;
-    return {
-      providerRequestId: data.id,
-      inputTokens:
-        data.native_tokens_prompt == null
-          ? null
-          : Math.max(0, data.native_tokens_prompt - (data.native_tokens_cached ?? 0)),
-      totalTokens:
-        data.native_tokens_prompt != null && data.native_tokens_completion != null
-          ? data.native_tokens_prompt + data.native_tokens_completion
-          : null,
-      outputTokens: data.native_tokens_completion ?? null,
-      cacheReadTokens: data.native_tokens_cached ?? null,
-      reasoningTokens: data.native_tokens_reasoning ?? null,
-      costUsd: data.total_cost,
-      costSource: "provider-reported",
-      usageSource: "provider-reconciled",
-    };
-  }
-}

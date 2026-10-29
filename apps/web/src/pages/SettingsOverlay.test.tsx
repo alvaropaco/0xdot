@@ -60,7 +60,7 @@ vi.mock("@rakazo/ui-web", () => ({
   ),
 }));
 
-vi.mock("./AccountSettingsOverlay", () => ({
+vi.mock("./SettingsPanels", () => ({
   ComputerSettingsPanel: () => null,
   GeneralSettingsPanels: () => null,
   UpdatesSettingsPanel: () => null,
@@ -77,7 +77,6 @@ vi.mock("../lib/rpc", () => ({
     memory: { providerConfig: () => providerConfig(spaceId) },
   }),
 }));
-vi.mock("./BillingSettingsPanel", () => ({ BillingSettingsPanel: () => null }));
 vi.mock("./MemorySettingsOverlay", () => ({
   MemorySettingsOverlay: ({ config }: { config: unknown }) => {
     memoryConfigs.push(config);
@@ -104,7 +103,6 @@ async function render(props: Partial<React.ComponentProps<typeof SettingsOverlay
     await act(async () => {
       root.render(
         <SettingsOverlay
-          name="Jamie"
           onUsageOpen={() => undefined}
           timezone={null}
           onTimezoneChange={async () => undefined}
@@ -168,17 +166,14 @@ it("reports a section picked in the nav so the shell can keep it in the URL", as
   }
 });
 
-it("opens a linked billing section once billing turns out to be on", async () => {
-  const { container, rerender, cleanup } = await render({
-    section: "billing",
-    billingEnabled: false,
+it("shows General for an unavailable section until it turns out to be available", async () => {
+  const { container, cleanup } = await render({
+    section: "computer",
   });
   const shown = () =>
     container.querySelector("[data-settings-section]")?.getAttribute("data-settings-section");
   try {
     expect(shown()).toBe("general");
-    await rerender({ section: "billing", billingEnabled: true });
-    expect(shown()).toBe("billing");
   } finally {
     await cleanup();
   }

@@ -9,12 +9,10 @@ import {
   secretStoreOptionsFromEnv,
   telegramBotsFromEnv,
 } from "@rakazo/adapters";
-import type { OidcConfig } from "@rakazo/auth";
 import type { MinimumClientBuilds } from "@rakazo/contracts";
 import { parseMinimumClientBuilds } from "@rakazo/contracts";
 import {
   phoneCallSettings,
-  resolveAuthSecret,
   resolveContentEncryption,
   resolveEncryptionKey,
   resolveScreenProxySecret,
@@ -26,21 +24,11 @@ import { monitoringPseudonymSecret } from "@rakazo/logging";
 export { resolveCloudAgentProvider, resolveSandboxProvider } from "@rakazo/adapters";
 
 export interface AppEnv {
-  passwordAuth?: boolean;
-  /** Opt-in Have I Been Pwned check for new passwords. Default off: it calls an outside service. */
-  breachedPasswordCheck?: boolean;
-  oidc?: OidcConfig;
   nodeEnv: string;
   desktopStackToken?: string;
   databaseUrl: string;
   realtimeDatabaseUrl: string;
-  authSecret: string;
-  authUrl: string;
   webOrigin: string;
-  /** `<TEAM_ID>.<bundle id>` of iOS apps that may use this domain's passkeys. */
-  passkeyAppleAppIds: string[];
-  /** SHA-256 signing certificate fingerprints of Android apps that may use this domain's passkeys. */
-  passkeyAndroidCertFingerprints: string[];
   privacyPolicyUrl?: string;
   apiUrl: string;
   apiHost: string;
@@ -48,8 +36,6 @@ export interface AppEnv {
   trustedProxies: string[];
   /** The header those proxies set. */
   clientIpHeader: string;
-  signupsEnabled: string | undefined;
-  signupAllowlist: string | undefined;
   encryptionKey: string;
   /** CONTENT_ENCRYPTION: whether new content is encrypted at rest. */
   contentEncryption: boolean;
@@ -92,13 +78,6 @@ export interface AppEnv {
   sendblueSigningSecret: string | undefined;
   sendbluePhoneNumber: string | undefined;
   expoAccessToken: string | undefined;
-  smtpUrl: string | undefined;
-  emailFrom: string | undefined;
-  /** Billing turns on only when all three are set; self-hosted installs leave them unset. */
-  stripeSecretKey: string | undefined;
-  stripeWebhookSecret: string | undefined;
-  stripePriceId: string | undefined;
-  emailEmulator: boolean;
   slackBotToken: string | undefined;
   slackSigningSecret: string | undefined;
   whatsappAccessToken: string | undefined;
@@ -142,66 +121,15 @@ export interface AppEnv {
 
 export function loadEnv(source: NodeJS.ProcessEnv = process.env): AppEnv {
   secretStoreOptionsFromEnv(source);
-  const issuer = optional(source.OIDC_ISSUER);
-  const clientId = optional(source.OIDC_CLIENT_ID);
-  const clientSecret = optional(source.OIDC_CLIENT_SECRET);
-  const credentials = [issuer, clientId, clientSecret];
-  if (credentials.some(Boolean) && !credentials.every(Boolean)) {
-    throw new Error(
-      "OIDC_ISSUER, OIDC_CLIENT_ID and OIDC_CLIENT_SECRET must be configured together",
-    );
-  }
-  if (issuer) {
-    try {
-      const url = new URL(issuer);
-      if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash)
-        throw new Error();
-    } catch {
-      throw new Error("OIDC_ISSUER must be an HTTPS issuer URL");
-    }
-  }
-  for (const key of [
-    "AUTH_PASSWORD_ENABLED",
-    "AUTH_BREACHED_PASSWORD_CHECK_ENABLED",
-    "OIDC_ALLOW_SIGNUP_BYPASS",
-  ]) {
-    const value = source[key];
-    if (value && !["true", "false"].includes(value))
-      throw new Error(`${key} must be true or false`);
-  }
-  const passwordAuth = source.AUTH_PASSWORD_ENABLED !== "false";
-  if (!passwordAuth && !issuer)
-    throw new Error("AUTH_PASSWORD_ENABLED=false requires OIDC configuration");
-  const oidc =
-    issuer && clientId && clientSecret
-      ? {
-          issuer,
-          clientId,
-          clientSecret,
-          name: optional(source.OIDC_NAME) ?? "SSO",
-          scopes: (optional(source.OIDC_SCOPES) ?? "openid email profile")
-            .split(/[\s,]+/)
-            .filter(Boolean),
-          allowSignupBypass: source.OIDC_ALLOW_SIGNUP_BYPASS === "true",
-        }
-      : undefined;
-  const authSecret = resolveAuthSecret(source);
   const sandboxProvider = resolveSandboxProvider(source);
   const cloudAgentProvider = resolveCloudAgentProvider(source);
   const deploymentModel = resolveDeploymentModel(source);
   return {
-    passwordAuth,
-    breachedPasswordCheck: source.AUTH_BREACHED_PASSWORD_CHECK_ENABLED === "true",
-    oidc,
     nodeEnv: source.NODE_ENV ?? "",
     databaseUrl: required(source, "DATABASE_URL"),
     realtimeDatabaseUrl: source.REALTIME_DATABASE_URL ?? required(source, "DATABASE_URL"),
     desktopStackToken: optional(source.RAKAZO_DESKTOP_STACK_TOKEN),
-    authSecret,
-    authUrl: source.BETTER_AUTH_URL ?? source.WEB_ORIGIN ?? "http://127.0.0.1:5173",
     webOrigin: source.WEB_ORIGIN ?? "http://127.0.0.1:5173",
-    passkeyAppleAppIds: list(source.PASSKEY_APPLE_APP_IDS),
-    passkeyAndroidCertFingerprints: androidCertFingerprints(source.PASSKEY_ANDROID_CERT_SHA256),
     privacyPolicyUrl: optional(source.PRIVACY_POLICY_URL),
     apiUrl: source.API_URL ?? "http://127.0.0.1:3100",
     apiHost: source.API_HOST ?? "127.0.0.1",
@@ -210,8 +138,6 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): AppEnv {
       .map((value) => value.trim())
       .filter(Boolean),
     clientIpHeader: optional(source.CLIENT_IP_HEADER)?.toLowerCase() ?? "x-forwarded-for",
-    signupsEnabled: source.SIGNUPS_ENABLED,
-    signupAllowlist: source.SIGNUP_ALLOWLIST,
     encryptionKey: resolveEncryptionKey(source),
     contentEncryption: resolveContentEncryption(source),
     dataDir: source.DATA_DIR ?? "./data",
@@ -250,12 +176,6 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): AppEnv {
     sendblueSigningSecret: optional(source.SENDBLUE_SIGNING_SECRET),
     sendbluePhoneNumber: optional(source.SENDBLUE_PHONE_NUMBER),
     expoAccessToken: optional(source.EXPO_ACCESS_TOKEN),
-    smtpUrl: optional(source.SMTP_URL),
-    emailFrom: optional(source.EMAIL_FROM),
-    stripeSecretKey: optional(source.STRIPE_SECRET_KEY),
-    stripeWebhookSecret: optional(source.STRIPE_WEBHOOK_SECRET),
-    stripePriceId: optional(source.STRIPE_PRICE_ID),
-    emailEmulator: source.EMAIL_EMULATOR === "true" && source.NODE_ENV !== "production",
     slackBotToken: optional(source.SLACK_BOT_TOKEN),
     slackSigningSecret: optional(source.SLACK_SIGNING_SECRET),
     whatsappAccessToken: optional(source.WHATSAPP_ACCESS_TOKEN),
@@ -312,19 +232,4 @@ function browserMonitoringFromEnv(source: NodeJS.ProcessEnv): AppEnv["browserMon
 function optional(value: string | undefined): string | undefined {
   const trimmed = value?.trim();
   return trimmed || undefined;
-}
-
-function list(value: string | undefined): string[] {
-  return (value ?? "").split(/[\s,]+/).filter(Boolean);
-}
-
-/** SHA-256 signing certificate fingerprints, normalized to the `AA:BB:…` form Digital Asset Links uses. */
-function androidCertFingerprints(value: string | undefined): string[] {
-  return list(value).map((fingerprint) => {
-    const hex = fingerprint.replace(/:/g, "");
-    if (!/^[0-9a-f]{64}$/i.test(hex)) {
-      throw new Error("PASSKEY_ANDROID_CERT_SHA256 must list SHA-256 fingerprints");
-    }
-    return hex.toUpperCase().match(/../g)!.join(":");
-  });
 }

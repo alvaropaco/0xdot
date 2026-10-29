@@ -1,14 +1,11 @@
-import { accountDisplay } from "@rakazo/core";
 import { typeScale } from "@rakazo/ui-tokens";
 import { useKeepAwake } from "expo-keep-awake";
 import { useRouter } from "expo-router";
 import type { ComponentProps } from "react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { Animated, Pressable, StyleSheet, Text, View } from "react-native";
 import { useReducedMotion } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import type { MobileMe } from "../lib/api";
-import { rpc } from "../lib/api";
 import type { CallPhase } from "../lib/call-session";
 import { endCall, toggleMute, toggleTranscript, useCallSession } from "../lib/call-session";
 import { useI18n } from "../lib/i18n";
@@ -20,8 +17,6 @@ import type { NativeSymbol } from "./native-symbol";
 
 const BARS = [9, 15, 21, 15, 9];
 const TRANSCRIPT_LINES = 4;
-
-let cachedInitial: string | null = null;
 
 /**
  * A call lives in the foreground: once the screen locks, Android pauses the app and the
@@ -39,18 +34,6 @@ export function CallCard() {
   const tokens = useMobileTokens();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const [initial, setInitial] = useState(cachedInitial ?? "");
-  const onCall = Boolean(call);
-
-  useEffect(() => {
-    if (!onCall || cachedInitial !== null) return;
-    void rpc<MobileMe>("me")
-      .then((me) => {
-        cachedInitial = accountDisplay(me, t("You")).initial ?? "";
-        setInitial(cachedInitial);
-      })
-      .catch(() => undefined);
-  }, [onCall]);
 
   if (!call) return null;
   return (
@@ -81,9 +64,6 @@ export function CallCard() {
           </Text>
         </Pressable>
         <Waveform phase={call.phase} />
-        <View style={[styles.initial, { backgroundColor: tokens.muted }]}>
-          <Text style={[styles.initialText, { color: tokens.mutedForeground }]}>{initial}</Text>
-        </View>
       </View>
       <View style={styles.actions}>
         <RoundButton
@@ -254,14 +234,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: 3,
   },
-  initial: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  initialText: { fontSize: 13, fontWeight: "600" },
   actions: { flexDirection: "row", justifyContent: "center", gap: 12, marginTop: 12 },
   buttonFallback: { borderWidth: StyleSheet.hairlineWidth },
   transcript: { marginTop: 12, paddingTop: 10, borderTopWidth: StyleSheet.hairlineWidth, gap: 5 },

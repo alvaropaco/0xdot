@@ -10,7 +10,6 @@ const owner: Actor = {
   userId: "user-one",
   spaceId: "space-one",
   email: "one@rakazo.test",
-  isDeploymentOwner: true,
 };
 
 function setup(

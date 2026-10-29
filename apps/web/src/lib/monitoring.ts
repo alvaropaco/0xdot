@@ -17,11 +17,8 @@ const MAX_PENDING = 20;
 let sentry: typeof SentryReact | undefined;
 // Queue caught React errors until monitoring starts.
 let pending: Array<[unknown, ErrorInfo]> | undefined = [];
-// The signed-in user's pseudonymous id, minted by the API; the raw account id never leaves.
+// The deployment owner's pseudonymous id, minted by the API; the raw account id never leaves.
 let userId: string | undefined;
-let identifications = 0;
-// Unknown until the session resolves; false means signed out.
-let signedInState: boolean | undefined;
 const errors = createClientErrorReporter();
 let explicitlyDisabled = false;
 let starting: Promise<boolean> | undefined;
@@ -86,26 +83,6 @@ export async function startMonitoring(fetchImpl: typeof fetch = fetch): Promise<
   }
 }
 
-/** Follow sign-in and sign-out so reports count affected users without naming them. */
-export async function identifyMonitoringUser(
-  signedIn: boolean,
-  fetchImpl: typeof fetch = fetch,
-): Promise<void> {
-  const current = ++identifications;
-  signedInState = signedIn;
-  userId = undefined;
-  if (!signedIn || explicitlyDisabled) return;
-  try {
-    const response = await fetchImpl("/api/monitoring/config");
-    if (!response.ok) return;
-    const { userId: id } = (await response.json()) as MonitoringConfig;
-    // A sign-out or another account that arrived meanwhile wins.
-    if (current === identifications && isMonitoringUserId(id)) userId = id;
-  } catch {
-    // Reports go out without a user.
-  }
-}
-
 async function loadSentry(fetchImpl: typeof fetch): Promise<typeof SentryReact | undefined> {
   let config: MonitoringConfig;
   try {
@@ -118,9 +95,7 @@ async function loadSentry(fetchImpl: typeof fetch): Promise<typeof SentryReact |
   }
   explicitlyDisabled = !config.dsn;
   if (!config.dsn) return undefined;
-  // Errors queued during startup count the user too, unless a sign-out or a newer answer came first.
-  if (signedInState !== false && userId === undefined && isMonitoringUserId(config.userId))
-    userId = config.userId;
+  if (isMonitoringUserId(config.userId)) userId = config.userId;
   let Sentry: typeof SentryReact;
   try {
     Sentry = await importChunk(() => import("@sentry/react"));

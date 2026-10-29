@@ -26,7 +26,9 @@ const state = vi.hoisted(() => ({
   selection: "space-a" as string | null,
   namespace: "ns-1",
 }));
-vi.mock("./artifact-cache-session", () => ({ artifactCacheSession: async () => state.namespace }));
+vi.mock("./artifact-cache-namespace", () => ({
+  artifactCacheNamespace: async () => state.namespace,
+}));
 vi.mock("./api", () => ({
   currentApiBase: () => "https://api.example.test",
   selectedSpaceId: () => state.selection,
@@ -36,12 +38,7 @@ vi.mock("./integrations-cache", () => ({
   integrationsCacheScope: async () => {
     throw new Error("offline");
   },
-}));
-vi.mock("./session", () => ({
-  currentSessionGeneration: () => 1,
-  loadSessionToken: async () => "fake-token",
   loadVerifiedIntegrationsScope: async () => state.verified,
-  saveVerifiedIntegrationsScope: vi.fn(),
 }));
 vi.mock("expo-file-system", () => {
   class Directory {
@@ -101,15 +98,12 @@ const scope: SavedChatsScope = {
   apiBase: "https://api.example.test",
   userId: "user-a",
   spaceId: "space-a",
-  sessionGeneration: 1,
   selectionId: "space-a",
   namespace: "ns-1",
 };
 const me = {
   userId: "user-a",
   spaceId: "space-a",
-  name: "Ada Example",
-  email: "ada@example.test",
 } as MobileMe;
 const bot = {
   id: "bot-a",

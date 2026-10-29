@@ -8,30 +8,20 @@ import {
   selectedSpaceId,
   subscribeServerReachable,
 } from "./api";
-import { artifactCacheSession } from "./artifact-cache-session";
+import { artifactCacheNamespace } from "./artifact-cache-namespace";
 import { t } from "./i18n";
-import { integrationsCacheScope } from "./integrations-cache";
+import { integrationsCacheScope, loadVerifiedIntegrationsScope } from "./integrations-cache";
 import { openModelSettings } from "./model-settings";
 import { outboxDisk } from "./outbox-disk";
-import {
-  currentSessionGeneration,
-  loadSessionToken,
-  loadVerifiedIntegrationsScope,
-} from "./session";
 import type { OutboxScope } from "./thread-feedback";
 import { configureUnsentSends, restoreUnsentSends, sendWaitingMessages } from "./thread-feedback";
 import { errorText } from "./user-error";
 
-let activeScope: (OutboxScope & { generation: number }) | null = null;
+let activeScope: OutboxScope | null = null;
 function scope() {
-  return activeScope &&
-    activeScope.generation === currentSessionGeneration() &&
-    activeScope.apiBase === currentApiBase()
-    ? activeScope
-    : null;
+  return activeScope && activeScope.apiBase === currentApiBase() ? activeScope : null;
 }
 export async function prepareUnsentSends(): Promise<void> {
-  const generation = currentSessionGeneration();
   const apiBase = currentApiBase();
   const spaceId = selectedSpaceId();
   if (!scope() || activeScope?.spaceId !== spaceId) {
@@ -40,24 +30,19 @@ export async function prepareUnsentSends(): Promise<void> {
       saved?.apiBase === apiBase && (spaceId || saved.selectionId === null)
         ? saved
         : await integrationsCacheScope();
-    const cacheSession = await artifactCacheSession(await loadSessionToken());
-    if (
-      generation !== currentSessionGeneration() ||
-      apiBase !== currentApiBase() ||
-      spaceId !== selectedSpaceId()
-    )
+    const cacheNamespace = await artifactCacheNamespace();
+    if (apiBase !== currentApiBase() || spaceId !== selectedSpaceId())
       throw new Error(t("Failed to send message"));
     activeScope = {
       apiBase,
       spaceId: spaceId ?? verified.spaceId,
       userId: verified.userId,
-      cacheSession,
-      generation,
+      cacheSession: cacheNamespace,
     };
   }
   restoreUnsentSends();
 }
-// Configure the wipe before bootstrap can replace credentials or the saved server.
+// Configure the outbox before bootstrap can replace the server or the saved Space.
 configureUnsentSends({
   request: async <T>(
     proc: string,
@@ -65,9 +50,7 @@ configureUnsentSends({
     options: Parameters<typeof rpc>[2],
     spaceId: string | null,
   ) => {
-    const generation = currentSessionGeneration();
     const context = await captureApiRequestContext();
-    if (generation !== currentSessionGeneration()) throw new Error("Session changed");
     const headers = { ...context.headers };
     if (spaceId) headers["x-rakazo-space-id"] = spaceId;
     else delete headers["x-rakazo-space-id"];

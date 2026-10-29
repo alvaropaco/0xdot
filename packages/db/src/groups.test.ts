@@ -52,7 +52,6 @@ describe("listSpaceGroupsForSpaces", () => {
       spaceId: "workspace-1",
       userId: "user-1",
       email: "user@example.test",
-      isDeploymentOwner: false,
     };
 
     await expect(repos.listSpaceGroupsForSpaces(actor, ["workspace-2"])).resolves.toEqual([
@@ -83,7 +82,6 @@ describe("archiveGroup", () => {
     spaceId: "workspace-1",
     userId: "user-1",
     email: "user@example.com",
-    isDeploymentOwner: true,
   };
   let queryRaw: ReturnType<typeof vi.fn>;
   let findFirst: ReturnType<typeof vi.fn>;
@@ -484,7 +482,6 @@ describe("createGroup", () => {
       spaceId: "workspace-1",
       userId: "user-1",
       email: "user@example.com",
-      isDeploymentOwner: false,
     };
 
     const group = await createGroupRepos(prisma).createGroup(actor, {
@@ -513,7 +510,6 @@ describe("listGroups archived", () => {
     spaceId: "space-1",
     userId: "user-1",
     email: "user@example.test",
-    isDeploymentOwner: false,
   };
   const member = (id: string, archived = false) => ({
     bot: { id, name: id, color: "#111", runs: [], archivedAt: archived ? new Date() : null },

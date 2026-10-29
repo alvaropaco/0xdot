@@ -41,7 +41,7 @@ describe("content-free product analytics", () => {
     expect(() =>
       analytics.capture(
         "internal-user-id",
-        { name: "signed_in" },
+        { name: "screen_viewed", screen: "home", surface: "web" },
         { id: "bad-date", at: new Date("invalid") },
       ),
     ).not.toThrow();
@@ -82,8 +82,8 @@ describe("content-free product analytics", () => {
       fetch,
     )!;
     const identity = { id: "internal-event-id", at: new Date("2026-01-01T00:00:00Z") };
-    first.capture("user-id", { name: "signed_in" }, identity);
-    rotated.capture("user-id", { name: "signed_in" }, identity);
+    first.capture("user-id", { name: "screen_viewed", screen: "home", surface: "web" }, identity);
+    rotated.capture("user-id", { name: "screen_viewed", screen: "home", surface: "web" }, identity);
     await first.flush();
     await rotated.flush();
     const bodies = fetch.mock.calls.map((call) => JSON.parse(call[1].body));
@@ -96,7 +96,8 @@ describe("content-free product analytics", () => {
   it("bounds queued events and contains collector failures", async () => {
     const fetch = vi.fn().mockRejectedValue(new Error("private collector response"));
     const analytics = createProductAnalytics(env, fetch)!;
-    for (let i = 0; i < 300; i++) analytics.capture("user-id", { name: "signed_in" });
+    for (let i = 0; i < 300; i++)
+      analytics.capture("user-id", { name: "screen_viewed", screen: "home", surface: "web" });
     await expect(analytics.flush()).resolves.toBeUndefined();
     expect(JSON.parse(fetch.mock.calls[0]![1].body).batch).toHaveLength(256);
   });

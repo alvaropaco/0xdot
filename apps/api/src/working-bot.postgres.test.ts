@@ -19,14 +19,10 @@ describe.skipIf(!enabled)("working bot visibility (PostgreSQL)", () => {
   it("prioritizes running work everywhere, keeps delegated DM progress silent, and stops it", async () => {
     const { prisma, pool } = createDb(process.env.DATABASE_URL!);
     const identity = await runAsSystem("test fixture", () =>
-      provisionMessagingIdentity(
-        prisma,
-        {
-          provider: "sendblue",
-          address: `working-fixture-${crypto.randomUUID()}`,
-        },
-        { signupsEnabled: undefined, signupAllowlist: undefined },
-      ),
+      provisionMessagingIdentity(prisma, {
+        provider: "sendblue",
+        address: `working-fixture-${crypto.randomUUID()}`,
+      }),
     );
     const actor: Actor = { ...identity, email: "fixture@example.test", isDeploymentOwner: false };
     try {

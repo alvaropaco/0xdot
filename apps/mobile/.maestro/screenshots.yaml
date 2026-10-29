@@ -8,44 +8,7 @@ tags:
     permissions:
       notifications: deny
 
-# A cold API 34 emulator can show a launcher ANR over the healthy app.
-- extendedWaitUntil:
-    visible: "Sign up for Rakazo|Pixel Launcher isn't responding"
-    timeout: 30000
-- runFlow:
-    when:
-      visible: "Pixel Launcher isn't responding"
-    commands:
-      - tapOn: "Close app"
-- extendedWaitUntil:
-    visible: "Sign up for Rakazo"
-    timeout: 30000
-- takeScreenshot: "02-sign-up"
-- tapOn: "Sign in"
-- runFlow:
-    when:
-      notVisible:
-        id: "server-address"
-    commands:
-      - assertVisible: "Sign in to Rakazo"
-      - takeScreenshot: "01-sign-in"
-      - tapOn: "Use a custom server"
-- assertVisible: "Server"
-- takeScreenshot: "03-server"
-- runFlow: helpers/server.yaml
-
-- tapOn: "Email"
-- inputText: ${RAKAZO_SCREENSHOT_EMAIL}
-- tapOn:
-    text: "Use password"
-    optional: true
-- tapOn: "Password"
-- inputText: ${RAKAZO_SCREENSHOT_PASSWORD}
-- hideKeyboard
-- tapOn: "Sign in"
-- tapOn:
-    text: "Don’t allow"
-    optional: true
+- runFlow: helpers/setup.yaml
 
 - extendedWaitUntil:
     visible: "Researcher"
@@ -86,19 +49,12 @@ tags:
 - assertVisible: "Customer support"
 - takeScreenshot: "09-new-space"
 
-- openLink: "rakazo:///account"
-- extendedWaitUntil:
-    visible: "Change password"
-    timeout: 10000
-- takeScreenshot: "10-account"
-- tapOn: "Change password"
-- assertVisible: "Current password"
-- takeScreenshot: "10b-change-password"
-- back
+- openLink: "rakazo:///settings"
+- takeScreenshot: "10-settings"
 - scrollUntilVisible:
     element: "Notification settings"
     direction: DOWN
-- takeScreenshot: "10c-account-notifications"
+- takeScreenshot: "10c-settings-notifications"
 
 - openLink: "rakazo:///models"
 - extendedWaitUntil:
@@ -248,16 +204,16 @@ tags:
 - takeScreenshot: "21-routine"
 
 # Verify saved appearance changes on already-mounted screens and modal routes.
-- openLink: "rakazo:///account"
+- openLink: "rakazo:///settings"
 - extendedWaitUntil:
     visible: "Dark"
     timeout: 10000
 - tapOn: "Dark"
-- takeScreenshot: "22-account-dark"
+- takeScreenshot: "22-settings-dark"
 - scrollUntilVisible:
     element: "Notification settings"
     direction: DOWN
-- takeScreenshot: "22b-account-notifications-dark"
+- takeScreenshot: "22b-settings-notifications-dark"
 
 - openLink: "rakazo:///new-group"
 - assertVisible: "Search bots"
@@ -283,7 +239,7 @@ tags:
 - assertVisible: "Delete group"
 - takeScreenshot: "28-group-settings-dark"
 
-- openLink: "rakazo:///account"
+- openLink: "rakazo:///settings"
 - tapOn: "Light"
 - openLink: "rakazo:///thread?botId=${RAKAZO_SCREENSHOT_BOT_ID}&name=Researcher"
 - assertVisible: "The fixture workspace is ready."

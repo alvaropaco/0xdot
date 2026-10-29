@@ -91,7 +91,6 @@ export default function ArchivedBots() {
   async function requestOptions(spaceId: string | undefined) {
     const context = await captureApiRequestContext();
     return {
-      skipSpaceAuthRecovery: true,
       requestContext: {
         ...context,
         headers: { ...context.headers, ...(spaceId ? { "x-rakazo-space-id": spaceId } : {}) },

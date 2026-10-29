@@ -13,7 +13,6 @@ describe("iOS screenshot catalog", () => {
   it("lists named sections whose flow files exist", async () => {
     const sections = await loadIosScreenshotCatalog(catalogDir);
     expect(sections.map((section) => section.id)).toEqual([
-      "auth",
       "onboarding",
       "inbox",
       "thread",

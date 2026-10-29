@@ -4,7 +4,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createSecurityEventPruner,
   installSecurityEventStore,
-  listSecurityEvents,
   pruneSecurityEvents,
   recordSecurityEvent,
   securityEventRetentionDays,
@@ -136,7 +135,7 @@ describe("recordSecurityEvent", () => {
 
   it("still logs and never throws when the database write fails", async () => {
     store.securityEvent.create.mockRejectedValueOnce(new Error("database unavailable"));
-    await expect(recordSecurityEvent({ type: "auth.sign_out" })).resolves.toBeUndefined();
+    await expect(recordSecurityEvent({ type: "egress.refused" })).resolves.toBeUndefined();
     expect(sink.events.map((event) => event.message)).toEqual([
       "security.event",
       "security.event.write_failed",
@@ -145,7 +144,7 @@ describe("recordSecurityEvent", () => {
 
   it("only logs before a store is installed", async () => {
     installSecurityEventStore(undefined);
-    await recordSecurityEvent({ type: "auth.sign_up", userId: "user-3" });
+    await recordSecurityEvent({ type: "credential.created", userId: "user-3" });
     expect(store.securityEvent.create).not.toHaveBeenCalled();
     expect(sink.events).toHaveLength(1);
   });
@@ -181,36 +180,5 @@ describe("retention", () => {
     now += 31 * 60 * 1000;
     await prune();
     expect(store.securityEvent.deleteMany).toHaveBeenCalledTimes(2);
-  });
-});
-
-describe("listSecurityEvents", () => {
-  it("filters to known types before the page limit, so a rollback cannot empty a page", async () => {
-    await listSecurityEvents(store as never, { limit: 10 });
-    const where = (store.securityEvent.findMany.mock.calls[0]![0] as { where: { type: unknown } })
-      .where;
-    expect(where.type).toEqual({ in: [...SECURITY_EVENT_TYPES] });
-  });
-
-  it("pages newest first from a cursor and skips types this release does not know", async () => {
-    const events = await listSecurityEvents(store as never, {
-      type: "auth.sign_in.failed",
-      ip: "203.0.113.5",
-      cursor: "event-2",
-      limit: 50,
-    });
-    const at = new Date("2026-10-20T10:00:00.000Z");
-    expect(store.securityEvent.findMany).toHaveBeenCalledWith({
-      where: {
-        type: "auth.sign_in.failed",
-        ip: "203.0.113.5",
-        OR: [{ createdAt: { lt: at } }, { createdAt: at, id: { lt: "event-2" } }],
-      },
-      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-      take: 50,
-    });
-    expect(events).toEqual([
-      expect.objectContaining({ id: "event-1", createdAt: "2026-10-20T10:00:00.000Z" }),
-    ]);
   });
 });

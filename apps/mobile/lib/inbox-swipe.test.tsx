@@ -427,14 +427,13 @@ describe("cross-space organize", () => {
     const scope = {
       useCallback: (callback: unknown) => callback,
       organizeRequestId: { current: 0 },
-      currentSessionGeneration: () => 1,
       currentApiBase: () => "",
       me: { spaceId: "space-current" },
       bots: [],
       groups: [],
       botSections: [],
       spaces: cached ? [space] : [],
-      captureApiRequestContext: vi.fn(async () => ({ headers: { authorization: "Bearer fake" } })),
+      captureApiRequestContext: vi.fn(async () => ({ headers: {} })),
       rpc: vi.fn(async () => ({ current: space })),
       setOrganizeTarget: vi.fn(),
       // A background poll must not delay showing an already available chat.
@@ -472,9 +471,8 @@ describe("cross-space organize", () => {
     await h.organize("bot", h.chat);
     expect(h.rpc).toHaveBeenCalledWith("spaces/list", undefined, {
       requestContext: {
-        headers: { authorization: "Bearer fake", "x-rakazo-space-id": h.chat.spaceId },
+        headers: { "x-rakazo-space-id": h.chat.spaceId },
       },
-      skipSpaceAuthRecovery: true,
     });
     expect(h.setOrganizeTarget).toHaveBeenCalledWith(expect.objectContaining({ chat: h.chat }));
   });
@@ -510,10 +508,9 @@ describe("inbox swipe handlers", () => {
     ),
   ].join("\n");
 
-  const session = { space: "space-a", generation: 1 };
+  const session = { space: "space-a" };
   beforeEach(() => {
     session.space = "space-a";
-    session.generation = 1;
   });
   const sent = (call: unknown[]) => call.slice(0, 2);
 
@@ -550,13 +547,10 @@ describe("inbox swipe handlers", () => {
       notifyArchivedChatsChanged: vi.fn(),
       dismissThreadNotifications: vi.fn(async () => {}),
       currentApiBase: () => "",
-      loadSessionToken: async () => null,
       selectedSpaceId: () => session.space,
-      currentSessionGeneration: () => session.generation,
       captureApiRequestContext: async () => ({
         apiBase: "",
-        headers: { authorization: "Bearer token", "x-rakazo-space-id": session.space },
-        sessionGeneration: session.generation,
+        headers: { "x-rakazo-space-id": session.space },
       }),
     };
     const compiled = ts.transpileModule(`${handlerSource}\nreturn { updateChat, runRowAction };`, {
@@ -645,20 +639,6 @@ describe("inbox swipe handlers", () => {
     await first;
   });
 
-  it("drops queued changes quietly once the session changes", async () => {
-    const pending: Array<() => void> = [];
-    const h = handlers(() => new Promise<void>((resolve) => pending.push(resolve)));
-    const first = h.runRowAction("bot", { id: "b1" }, "unread");
-    void h.runRowAction("bot", { id: "b1" }, "read");
-    await vi.waitFor(() => expect(pending).toHaveLength(1));
-    session.generation = 2;
-    pending.shift()!();
-    await first;
-    expect(h.rpc).toHaveBeenCalledTimes(1);
-    expect(h.state.overrides.size).toBe(0);
-    expect(h.Alert.alert).not.toHaveBeenCalled();
-  });
-
   it("marks unread optimistically, keeps it through the request, then refreshes", async () => {
     let finish!: () => void;
     const h = handlers(() => new Promise<void>((resolve) => (finish = resolve)));
@@ -742,10 +722,8 @@ describe("inbox swipe handlers", () => {
         {
           requestContext: {
             apiBase: "",
-            headers: { authorization: "Bearer token", "x-rakazo-space-id": "space-b" },
-            sessionGeneration: 1,
+            headers: { "x-rakazo-space-id": "space-b" },
           },
-          skipSpaceAuthRecovery: true,
         },
       ],
     ]);

@@ -5,7 +5,7 @@ import type { RunActivityRow } from "@rakazo/contracts";
 import type { PrismaClient } from "@rakazo/db";
 import { createThreadMessage } from "@rakazo/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { sessionCookieHeader } from "./index.js";
+import { OWNER_COOKIE } from "./index.js";
 
 type App = { request: (input: string, init?: RequestInit) => Promise<Response> };
 
@@ -276,14 +276,15 @@ async function seedRun(
   });
 }
 
-async function signup(app: App, email: string, name: string) {
-  const response = await app.request("/api/auth/sign-up/email", {
-    method: "POST",
-    headers: { "content-type": "application/json", origin: "http://127.0.0.1:5173" },
-    body: JSON.stringify({ email, password: "test-password-123", name }),
-  });
-  expect(response.status).toBeLessThan(400);
-  return sessionCookieHeader(response);
+/**
+ * There are no accounts: the API acts as its single deployment owner for every
+ * request, so sign-up is a no-op kept for call-site readability.
+ */
+async function signup(app: App, email: string, name: string): Promise<string> {
+  void app;
+  void email;
+  void name;
+  return OWNER_COOKIE;
 }
 
 async function rpc<T>(app: App, cookie: string, proc: string, body: unknown = {}): Promise<T> {

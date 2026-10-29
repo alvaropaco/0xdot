@@ -1,10 +1,5 @@
 [
   {
-    "id": "auth",
-    "title": "Auth",
-    "flow": "flows/auth.yaml"
-  },
-  {
     "id": "onboarding",
     "title": "Onboarding",
     "flow": "flows/onboarding.yaml"

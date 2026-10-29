@@ -7,8 +7,6 @@ import { IsolationError } from "./scope.js";
 const actor: Actor = {
   userId: "user-1",
   spaceId: "ws-1",
-  email: "test@example.com",
-  isDeploymentOwner: false,
 };
 
 const baseBot = {

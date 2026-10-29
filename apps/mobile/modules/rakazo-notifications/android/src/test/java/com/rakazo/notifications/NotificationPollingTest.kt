@@ -2,43 +2,10 @@ package com.rakazo.notifications
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class NotificationPollingTest {
-  @Test
-  fun `token is loaded once until reset`() {
-    val cache = PollTokenCache()
-    var reads = 0
-    val load = { reads++; "token-$reads" }
-    val commit: (() -> Unit) -> Boolean = { it(); true }
-
-    assertEquals("token-1", cache.getOrLoad(load, commit))
-    repeat(5) { assertEquals("token-1", cache.getOrLoad(load, commit)) }
-    assertEquals(1, reads)
-    cache.reset()
-    assertEquals("token-2", cache.getOrLoad(load, commit))
-    assertEquals(2, reads)
-  }
-
-  @Test
-  fun `obsolete generation cannot cache a token loaded during reset`() {
-    val cache = PollTokenCache()
-    assertNull(cache.getOrLoad({ cache.reset(); "obsolete" }) { false })
-    assertEquals("current", cache.getOrLoad({ "current" }) { it(); true })
-    assertEquals("current", cache.getOrLoad({ error("must reuse token") }) { it(); true })
-  }
-
-  @Test
-  fun `blank tokens remain cached until reset`() {
-    val cache = PollTokenCache()
-    assertEquals("", cache.getOrLoad({ "" }) { it(); true })
-    assertEquals("", cache.getOrLoad({ error("must reuse blank token") }) { it(); true })
-    cache.reset()
-    assertEquals("new", cache.getOrLoad({ "new" }) { it(); true })
-  }
-
   @Test
   fun `unchanged history is not rewritten but added and removed runs are`() {
     val history = PollHistoryWrites()

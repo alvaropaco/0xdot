@@ -34,7 +34,6 @@ import {
   ArtifactVersionSchema,
   ArtifactWithContentSchema,
   AvatarStyleSchema,
-  BillingStatusSchema,
   BotMcpServerSchema,
   BotSchema,
   BotSectionName,
@@ -51,7 +50,6 @@ import {
   CreateGroupInput,
   CreateRoutineInput,
   CreateScratchpadItemInput,
-  DeploymentSettingsSchema,
   ExportManifestSchema,
   ExternalConversationPolicySchema,
   GroupDetailSchema,
@@ -71,7 +69,6 @@ import {
   ModelCatalogEntrySchema,
   ModelConnectInputSchema,
   ModelCredentialSchema,
-  ModelCreditAmountSchema,
   ModelOAuthBeginSchema,
   OPENAI_COMPATIBLE_PROVIDER_ID,
   REPLY_QUOTE_MAX_LENGTH,
@@ -79,11 +76,6 @@ import {
   RoutineSchema,
   ScratchpadItemSchema,
   ScratchpadItemStatusSchema,
-  ServerUpdateCheckSchema,
-  ServerUpdateRequestSchema,
-  ServerUpdateRunSchema,
-  ServerUpdateStatusSchema,
-  SignupSurveySchema,
   SkillPlaybookSchema,
   SpaceMemoryConfigSchema,
   SpaceNavigationSchema,
@@ -115,7 +107,6 @@ import { MessageReactionSchema } from "./reactions.js";
 import { RoutineWatchSchema } from "./routine-watch.js";
 import { RoutineHistorySchema, RoutineRunCursorSchema, RunsListOutputSchema } from "./runs.js";
 import { SearchQueryOutputSchema } from "./search.js";
-import { SecurityEventListInputSchema, SecurityEventSchema } from "./security-events.js";
 
 const botId = z.object({ botId: Id });
 const groupId = z.object({ groupId: Id });
@@ -195,20 +186,6 @@ export const appContract = {
   },
   health: oc.output(z.object({ ok: z.literal(true), version: z.string() })),
   me: oc.output(MeSchema),
-  billing: {
-    status: oc.output(BillingStatusSchema),
-    selectFunding: oc
-      .input(z.object({ funding: z.enum(["byok", "credits"]) }))
-      .output(z.object({ ok: z.literal(true) })),
-    purchaseCredits: oc
-      .input(z.object({ amountCents: ModelCreditAmountSchema, monthly: z.boolean() }))
-      .output(z.object({ url: z.string().url() })),
-    setMonthlyCredits: oc
-      .input(z.object({ amountCents: ModelCreditAmountSchema }))
-      .output(z.object({ ok: z.literal(true) })),
-    checkout: oc.output(z.object({ url: z.string().url() })),
-    portal: oc.output(z.object({ url: z.string().url() })),
-  },
   preferences: {
     update: oc
       .input(
@@ -236,32 +213,6 @@ export const appContract = {
       .output(z.object({ ok: z.literal(true), activeSpaceId: Id })),
   },
   bootstrap: oc.input(z.object({ botId: Id.optional() })).output(AppBootstrapSchema),
-  deployment: {
-    get: oc.output(DeploymentSettingsSchema),
-    update: oc
-      .input(
-        z.object({
-          signupsEnabled: z.boolean().optional(),
-          signupAllowlist: z.array(z.string()).optional(),
-          computerHost: z.enum(["docker", "this-mac"]).nullable().optional(),
-        }),
-      )
-      .output(DeploymentSettingsSchema),
-  },
-  /** Deployment-owner view of the append-only security event log, newest first. */
-  security: {
-    events: oc.input(SecurityEventListInputSchema).output(z.array(SecurityEventSchema)),
-  },
-  /**
-   * Deployment-owner product updates. When the Compose updater sidecar is reachable, these proxy
-   * to its `/state` `/plan` `/apply` contract. Rollback stays on the sidecar for ops only and is
-   * not exposed here. Never git-fetch from the API process.
-   */
-  updater: {
-    status: oc.output(ServerUpdateStatusSchema),
-    check: oc.input(ServerUpdateRequestSchema).output(ServerUpdateCheckSchema),
-    apply: oc.input(ServerUpdateRequestSchema).output(ServerUpdateRunSchema),
-  },
   models: {
     list: oc.output(z.array(ModelCatalogEntrySchema)),
     credentials: oc.output(z.array(ModelCredentialSchema)),
@@ -838,8 +789,6 @@ export const appContract = {
     },
   },
   onboarding: {
-    /** Record the optional signup survey; an empty submission marks it skipped. */
-    signupSurvey: oc.input(SignupSurveySchema).output(z.object({ ok: z.literal(true) })),
     /** Seed the first-run greeting into the bot's thread (focus card is separate). */
     start: oc.input(z.object({ botId: Id })).output(z.object({ ok: z.literal(true) })),
     /** Post the focus choice card when the thread is still idle. */

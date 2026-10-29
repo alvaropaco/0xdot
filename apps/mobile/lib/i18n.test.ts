@@ -60,8 +60,7 @@ describe("mobile i18n", () => {
   it("translates seeded Chinese chrome and keeps interpolations", async () => {
     const { resetI18nForTests, t } = await import("./i18n");
     resetI18nForTests("zh-CN");
-    expect(t("Account")).toBe("账户");
-    expect(t("Sign in to Rakazo")).toBe("登录 Rakazo");
+    expect(t("Settings")).toBe("设置");
     expect(t("New bot")).toBe("新建 Bot");
     expect(t("{runs} runs · {tokens} tokens", { runs: 3, tokens: 12 })).toBe(
       "3 次运行 · 12 个 token",
@@ -69,8 +68,7 @@ describe("mobile i18n", () => {
     expect(t("Delete {name}?", { name: "Scout" })).toBe("要删除 Scout 吗？");
 
     resetI18nForTests("ru");
-    expect(t("Account")).toBe("Аккаунт");
-    expect(t("Sign in to Rakazo")).toBe("Войти в Rakazo");
+    expect(t("Settings")).toBe("Настройки");
     expect(t("New bot")).toBe("Новый бот");
     expect(t("{runs} runs · {tokens} tokens", { runs: 3, tokens: 12 })).toBe(
       "Запусков: 3 · токенов: 12",
@@ -78,8 +76,7 @@ describe("mobile i18n", () => {
     expect(t("Delete {name}?", { name: "Scout" })).toBe("Удалить Scout?");
 
     resetI18nForTests("nl");
-    expect(t("Account")).toBe("Account");
-    expect(t("Sign in to Rakazo")).toBe("Aanmelden bij Rakazo");
+    expect(t("Settings")).toBe("Instellingen");
     expect(t("New bot")).toBe("Nieuwe bot");
     expect(t("{runs} runs · {tokens} tokens", { runs: 3, tokens: 12 })).toBe(
       "3 uitvoeringen · 12 tokens",
@@ -87,8 +84,7 @@ describe("mobile i18n", () => {
     expect(t("Delete {name}?", { name: "Scout" })).toBe("Scout verwijderen?");
 
     resetI18nForTests("ja");
-    expect(t("Account")).toBe("アカウント");
-    expect(t("Sign in to Rakazo")).toBe("Rakazoにログイン");
+    expect(t("Settings")).toBe("設定");
     expect(t("New bot")).toBe("新しいボット");
     expect(t("{runs} runs · {tokens} tokens", { runs: 3, tokens: 12 })).toBe(
       "3回の実行 · 12トークン",
@@ -96,8 +92,7 @@ describe("mobile i18n", () => {
     expect(t("Delete {name}?", { name: "Scout" })).toBe("Scoutを削除しますか？");
 
     resetI18nForTests("de");
-    expect(t("Account")).toBe("Konto");
-    expect(t("Sign in to Rakazo")).toBe("Bei Rakazo anmelden");
+    expect(t("Settings")).toBe("Einstellungen");
     expect(t("New bot")).toBe("Neuer Bot");
     expect(t("{runs} runs · {tokens} tokens", { runs: 3, tokens: 12 })).toBe(
       "3 Ausführungen · 12 Token",
@@ -161,8 +156,6 @@ describe("mobile i18n", () => {
       EMPTY_PLUGIN_CATALOG_MESSAGE,
       OPENAI_COMPATIBLE_BASE_URL_HINT,
       ...SLASH_ACTIONS.map((action) => action.label),
-      "Sign-in did not return a session",
-      "Sign-up did not return a session",
       "{count} model",
       "{count} models",
       // Labels the t() literal scan cannot see: built from maps or ternaries.

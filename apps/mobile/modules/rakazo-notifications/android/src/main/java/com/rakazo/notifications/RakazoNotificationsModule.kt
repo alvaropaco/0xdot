@@ -16,47 +16,33 @@ class RakazoNotificationsModule : Module() {
       NotificationStorage(context()).settings.toMap()
     }
 
-    AsyncFunction("setSettings") { value: Map<String, Boolean>, endpoint: String, token: String, spaceId: String ->
+    AsyncFunction("setSettings") { value: Map<String, Boolean>, endpoint: String, spaceId: String ->
       val context = context()
       val storage = NotificationStorage(context)
       if (endpoint.isNotBlank() && !isAllowedNotificationEndpoint(endpoint)) {
         throw IllegalArgumentException("Public servers need https://. HTTP only works on your local network.")
       }
       storage.endpoint = endpoint
-      storage.token = token
       storage.spaceId = spaceId
       storage.settings = NotificationSettings.fromMap(value)
-      if (storage.settings.liveConnection && endpoint.isNotBlank() && token.isNotBlank()) {
+      if (storage.settings.liveConnection && endpoint.isNotBlank()) {
         RakazoNotificationService.start(context)
       } else {
         RakazoNotificationService.stop(context)
       }
     }
 
-    AsyncFunction("resume") { endpoint: String, token: String, spaceId: String ->
+    AsyncFunction("resume") { endpoint: String, spaceId: String ->
       val context = context()
       if (endpoint.isNotBlank() && !isAllowedNotificationEndpoint(endpoint)) {
         RakazoNotificationService.stop(context)
       } else {
         val storage = NotificationStorage(context)
         storage.endpoint = endpoint
-        storage.token = token
         storage.spaceId = spaceId
-        if (storage.settings.liveConnection && endpoint.isNotBlank() && token.isNotBlank()) {
+        if (storage.settings.liveConnection && endpoint.isNotBlank()) {
           RakazoNotificationService.start(context)
         }
-      }
-    }
-
-    AsyncFunction("stop") { clearSession: Boolean ->
-      val context = context()
-      if (clearSession) {
-        RakazoNotificationService.clearSession(context)
-        val storage = NotificationStorage(context)
-        storage.token = ""
-        storage.spaceId = ""
-      } else {
-        RakazoNotificationService.stop(context)
       }
     }
 

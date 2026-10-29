@@ -13,7 +13,6 @@ import {
   piSessionUserRoot,
   prunePiSessionFiles,
   removePiBotSessions,
-  removePiUserSessions,
   resolvePiSessionRoot,
 } from "./pi-session.js";
 
@@ -224,7 +223,7 @@ describe("Pi JSONL sessions", () => {
     }
   });
 
-  it("removes bot and account session scopes", async () => {
+  it("removes bot session scopes", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "rakazo-pi-cleanup-"));
     try {
       const sessionsRoot = path.join(root, "pi-sessions");
@@ -238,11 +237,6 @@ describe("Pi JSONL sessions", () => {
       await removePiBotSessions(root, "user-1", "bot-1");
       await expect(readdir(botRoot)).rejects.toMatchObject({ code: "ENOENT" });
       await expect(readdir(otherBotRoot)).resolves.toHaveLength(1);
-
-      await removePiUserSessions(root, "user-1");
-      await expect(readdir(piSessionUserRoot(sessionsRoot, "user-1"))).rejects.toMatchObject({
-        code: "ENOENT",
-      });
     } finally {
       await rm(root, { recursive: true, force: true });
     }

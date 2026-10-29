@@ -1,11 +1,10 @@
 import { MenuView } from "@expo/ui/community/menu";
 import type { RunActivityRow, SpaceBot, SpaceGroup } from "@rakazo/contracts";
 import { normalizeCreateBotProfile } from "@rakazo/contracts";
-import { accountDisplay, isRetryableError, isRunWaitingOnUser, isRunWorking } from "@rakazo/core";
+import { isRetryableError, isRunWaitingOnUser, isRunWorking } from "@rakazo/core";
 import { botColors, fontWeight, typeScale } from "@rakazo/ui-tokens";
 import type { Href } from "expo-router";
 import {
-  Redirect,
   useFocusEffect,
   useGlobalSearchParams,
   useIsFocused,
@@ -24,7 +23,6 @@ import {
   useMemo,
   useRef,
   useState,
-  useSyncExternalStore,
 } from "react";
 import type { ViewToken } from "react-native";
 import {
@@ -76,12 +74,10 @@ import type {
 import {
   captureApiRequestContext,
   currentApiBase,
-  loadSessionToken,
   rpc,
   selectedSpaceId,
   selectInitialSpace,
   selectSpace,
-  signOut,
 } from "../lib/api";
 import {
   appBadgeGeneration,
@@ -130,7 +126,6 @@ import { afterChatNotifyChange, dismissThreadNotifications } from "../lib/live-n
 import { native, useThemedStyles } from "../lib/native";
 import { iosAtLeast } from "../lib/native-controls";
 import type { InboxSignal } from "../lib/offscreen-unreads";
-import { offerPasskeyOnce } from "../lib/passkey";
 import { ACTIVITY_POLL_INTERVAL_MS, INBOX_POLL_INTERVAL_MS } from "../lib/poll-cadence";
 import { previewSnippet } from "../lib/preview";
 import { registerPushToken } from "../lib/push";
@@ -138,11 +133,6 @@ import { androidRipple } from "../lib/ripple";
 import { loadSavedInbox, saveInbox } from "../lib/saved-chats";
 import { setSearchInbox } from "../lib/search-inbox";
 import { promptSectionName } from "../lib/section-name-prompt";
-import {
-  currentReadySessionGeneration,
-  currentSessionGeneration,
-  subscribeSessionGeneration,
-} from "../lib/session";
 import { useSplitView } from "../lib/split-view";
 import { stacksAtTextScale } from "../lib/text-scale";
 import type { LoadFailureKind } from "../lib/user-error";
@@ -214,9 +204,7 @@ async function chatRequestContext(
 
 async function chatRpc(spaceId: string | undefined, proc: string, body: unknown) {
   const requestContext = await chatRequestContext(spaceId);
-  return requestContext
-    ? rpc(proc, body, { requestContext, skipSpaceAuthRecovery: true })
-    : rpc(proc, body);
+  return requestContext ? rpc(proc, body, { requestContext }) : rpc(proc, body);
 }
 
 export default function HomeRoute() {
@@ -257,9 +245,7 @@ export function InboxPane({ onSelectSpace }: InboxPaneProps) {
 }
 
 function HomeSession({ embedded = false, onSelectSpace }: InboxPaneProps & { embedded?: boolean }) {
-  const generation = useSyncExternalStore(subscribeSessionGeneration, currentSessionGeneration);
-  const ready = useSyncExternalStore(subscribeSessionGeneration, currentReadySessionGeneration);
-  return <Home key={`${generation}:${ready}`} embedded={embedded} onSelectSpace={onSelectSpace} />;
+  return <Home embedded={embedded} onSelectSpace={onSelectSpace} />;
 }
 
 function Home({ embedded, onSelectSpace }: InboxPaneProps & { embedded: boolean }) {
@@ -294,7 +280,7 @@ function Home({ embedded, onSelectSpace }: InboxPaneProps & { embedded: boolean 
   const [groups, setGroups] = useState<MobileGroup[]>([]);
   const [botSections, setBotSections] = useState<MobileBotSection[]>([]);
   const [spaces, setSpaces] = useState<MobileSpace[]>([]);
-  const [me, setMe] = useState<Pick<MobileMe, "userId" | "spaceId" | "name"> | null>(null);
+  const [me, setMe] = useState<Pick<MobileMe, "userId" | "spaceId"> | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Kept apart from action errors so a failed action never borrows the load's title.
   const [inboxLoading, setInboxLoading] = useState(false);
@@ -302,7 +288,6 @@ function Home({ embedded, onSelectSpace }: InboxPaneProps & { embedded: boolean 
     null,
   );
   const [ready, setReady] = useState(false);
-  const [hasSession, setHasSession] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [unreadOverrides, setUnreadOverrides] = useState<ReadonlyMap<string, boolean>>(
     () => new Map(),
@@ -365,18 +350,6 @@ function Home({ embedded, onSelectSpace }: InboxPaneProps & { embedded: boolean 
     void loadActivityMode().then(setActivityMode);
   }, []);
 
-  // Only while the inbox is in front, so the offer waits until signup setup is done.
-  useFocusEffect(
-    useCallback(() => {
-      if (!userId) return;
-      let active = true;
-      void offerPasskeyOnce(userId, () => active);
-      return () => {
-        active = false;
-      };
-    }, [userId]),
-  );
-
   const toggleActivityMode = useCallback(() => {
     setActivityMode((on) => {
       const next = !on;
@@ -398,7 +371,6 @@ function Home({ embedded, onSelectSpace }: InboxPaneProps & { embedded: boolean 
     if (spaceActionRef.current.busy || spaceActionRef.current.recoveryId) return;
     const requestId = ++inboxRequestId.current;
     const apiBase = currentApiBase();
-    const generation = currentSessionGeneration();
     setError(null);
     setInboxLoading(true);
     try {
@@ -406,35 +378,11 @@ function Home({ embedded, onSelectSpace }: InboxPaneProps & { embedded: boolean 
         rpc<MobileSpaceNavigation>("spaces/list"),
         rpc<MobileMe>("me"),
       ]);
-      if (
-        requestId !== inboxRequestId.current ||
-        generation !== currentSessionGeneration() ||
-        apiBase !== currentApiBase()
-      )
-        return;
+      if (requestId !== inboxRequestId.current || apiBase !== currentApiBase()) return;
       if (!(await selectInitialSpace(nextMe.spaceId))) {
         throw new Error(t("Could not save the default space"));
       }
-      if (
-        requestId !== inboxRequestId.current ||
-        generation !== currentSessionGeneration() ||
-        apiBase !== currentApiBase()
-      )
-        return;
-      if (nextMe.billingEnabled) {
-        void rpc<{ access: boolean; funding?: string | null }>("billing/status")
-          .then((billing) => {
-            if (
-              requestId === inboxRequestId.current &&
-              generation === currentSessionGeneration() &&
-              apiBase === currentApiBase() &&
-              billing.funding !== undefined &&
-              !billing.access
-            )
-              router.push("/billing");
-          })
-          .catch(() => undefined);
-      }
+      if (requestId !== inboxRequestId.current || apiBase !== currentApiBase()) return;
       setBots((current) => retainInboxValue(current, navigation.current.bots));
       setBotSections((current) => retainInboxValue(current, navigation.current.botSections));
       setGroups((current) => retainInboxValue(current, navigation.current.groups));
@@ -448,7 +396,6 @@ function Home({ embedded, onSelectSpace }: InboxPaneProps & { embedded: boolean 
           apiBase,
           userId: nextMe.userId,
           spaceId: navigation.current.id,
-          sessionGeneration: generation,
           selectionId: selectedSpaceId(),
         },
         navigation,
@@ -456,12 +403,7 @@ function Home({ embedded, onSelectSpace }: InboxPaneProps & { embedded: boolean 
       );
       return true;
     } catch (err) {
-      if (
-        requestId !== inboxRequestId.current ||
-        generation !== currentSessionGeneration() ||
-        apiBase !== currentApiBase()
-      )
-        return;
+      if (requestId !== inboxRequestId.current || apiBase !== currentApiBase()) return;
       setLoadFailure({
         kind: loadFailureKind(err),
         message: errorText(err, t("Could not load bots")),
@@ -483,21 +425,18 @@ function Home({ embedded, onSelectSpace }: InboxPaneProps & { embedded: boolean 
   }, [loadBots]);
 
   useEffect(() => {
-    void Promise.all([loadSessionToken(), loadCollapsedSections()]).then(([token, stored]) => {
+    void loadCollapsedSections().then((stored) => {
       if (stored) setCollapsedSections(stored);
-      setHasSession(Boolean(token));
       setReady(true);
     });
   }, []);
 
   useEffect(() => {
-    if (!hasSession) return;
     void registerPushToken().catch(() => undefined);
-  }, [hasSession]);
+  }, []);
 
   // Show the inbox saved on this device until the first live load replaces it.
   useEffect(() => {
-    if (!hasSession) return;
     let cancelled = false;
     void loadSavedInbox().then((saved) => {
       if (cancelled || !saved || inboxLoaded.current) return;
@@ -510,11 +449,11 @@ function Home({ embedded, onSelectSpace }: InboxPaneProps & { embedded: boolean 
     return () => {
       cancelled = true;
     };
-  }, [hasSession]);
+  }, []);
 
   // The embedded pane is visible beside the chat, so it keeps polling even when
   // the chat route owns focus.
-  useForegroundPoll(loadBots, INBOX_POLL_INTERVAL_MS, hasSession && (embedded || isFocused));
+  useForegroundPoll(loadBots, INBOX_POLL_INTERVAL_MS, embedded || isFocused);
 
   const spaceId = me?.spaceId;
   // Another space's count never shows while this space's is loading.
@@ -532,15 +471,14 @@ function Home({ embedded, onSelectSpace }: InboxPaneProps & { embedded: boolean 
   // Not part of the poll: the count changes only through archive and restore, which signal it.
   useFocusEffect(
     useCallback(() => {
-      if (!hasSession) return;
       void loadArchivedCount();
       return onArchivedChatsChanged(() => void loadArchivedCount());
-    }, [hasSession, loadArchivedCount]),
+    }, [loadArchivedCount]),
   );
 
   const loadActivity = useCallback(async () => {
     if (spaceActionRef.current.busy || spaceActionRef.current.recoveryId) return;
-    if (!hasSession || !activityMode) {
+    if (!activityMode) {
       activityRequestId.current += 1;
       setActivity({ active: [], recent: [] });
       return;
@@ -556,19 +494,19 @@ function Home({ embedded, onSelectSpace }: InboxPaneProps & { embedded: boolean 
       // False when the server refused rather than failed: asking again only polls it.
       return isRetryableError(error);
     }
-  }, [activityMode, hasSession]);
+  }, [activityMode]);
 
   useForegroundPoll(
     loadActivity,
     ACTIVITY_POLL_INTERVAL_MS,
-    hasSession && activityMode && (embedded || isFocused),
+    activityMode && (embedded || isFocused),
   );
 
   useEffect(
     () => () => {
       activityRequestId.current += 1;
     },
-    [activityMode, hasSession],
+    [activityMode],
   );
 
   const visible = useMemo(
@@ -630,7 +568,6 @@ function Home({ embedded, onSelectSpace }: InboxPaneProps & { embedded: boolean 
     if (badgeCount === null || badgeLoad === null) return;
     void syncInboxAppBadge(badgeCount, badgeLoad.generation);
   }, [badgeCount, badgeLoad]);
-  const initials = accountDisplay(me ?? {}, t("You")).initial ?? "?";
   const organizeSpace = organizeTarget
     ? organizeTarget.spaceId === me?.spaceId
       ? { bots, groups, botSections }
@@ -688,12 +625,6 @@ function Home({ embedded, onSelectSpace }: InboxPaneProps & { embedded: boolean 
     },
     [embedded, pathname, router],
   );
-  const signInAgain = useCallback(async () => {
-    // A rejected session cannot sign out on the server; clearing it here is what matters.
-    await signOut().catch(() => undefined);
-    router.replace("/sign-in");
-  }, [router]);
-
   const chooseInboxSpace = useCallback(
     async (spaceId: string) => {
       if (spaceActionRef.current.busy) return;
@@ -843,19 +774,18 @@ function Home({ embedded, onSelectSpace }: InboxPaneProps & { embedded: boolean 
 
   useLayoutEffect(() => {
     if (!nativeHeader) return;
-    const signedIn = ready && hasSession;
     navigation.setOptions({
-      headerShown: signedIn,
+      headerShown: true,
       headerTransparent: true,
       headerStyle: { backgroundColor: "transparent" },
       title: "",
       unstable_headerLeftItems: () => [
         {
           type: "button" as const,
-          label: t("Account"),
-          icon: { type: "sfSymbol" as const, name: "person.crop.circle" },
-          accessibilityLabel: t("Account"),
-          onPress: () => router.push("/account"),
+          label: t("Settings"),
+          icon: { type: "sfSymbol" as const, name: "gearshape" },
+          accessibilityLabel: t("Settings"),
+          onPress: () => router.push("/settings"),
         },
       ],
       unstable_headerRightItems: () => [
@@ -908,9 +838,6 @@ function Home({ embedded, onSelectSpace }: InboxPaneProps & { embedded: boolean 
   }, [
     nativeHeader,
     navigation,
-    ready,
-    hasSession,
-    initials,
     activityMode,
     toggleActivityMode,
     runCreateAction,
@@ -940,7 +867,6 @@ function Home({ embedded, onSelectSpace }: InboxPaneProps & { embedded: boolean 
   const organize = useCallback(
     async (kind: "bot" | "group", chat: MobileBot | MobileGroup | SpaceBot | SpaceGroup) => {
       const requestId = ++organizeRequestId.current;
-      const generation = currentSessionGeneration();
       const apiBase = currentApiBase();
       const spaceId = chat.spaceId ?? me?.spaceId;
       let space =
@@ -959,30 +885,18 @@ function Home({ embedded, onSelectSpace }: InboxPaneProps & { embedded: boolean 
               ...context,
               headers: { ...context.headers, "x-rakazo-space-id": spaceId },
             },
-            skipSpaceAuthRecovery: true,
           });
           if (navigation.current.id !== spaceId) return;
           space = navigation.current;
           target = (kind === "bot" ? space.bots : space.groups).find((item) => item.id === chat.id);
         } catch (err) {
-          if (
-            requestId === organizeRequestId.current &&
-            generation === currentSessionGeneration() &&
-            apiBase === currentApiBase()
-          ) {
+          if (requestId === organizeRequestId.current && apiBase === currentApiBase()) {
             Alert.alert(t("Could not load bots"), errorText(err, t("Try again.")));
           }
           return;
         }
       }
-      if (
-        !space ||
-        !target ||
-        requestId !== organizeRequestId.current ||
-        generation !== currentSessionGeneration() ||
-        apiBase !== currentApiBase()
-      )
-        return;
+      if (!space || !target || requestId !== organizeRequestId.current) return;
       setOrganizeTarget({ kind, id: chat.id, spaceId, chat: target, sections: space.botSections });
       void loadBots();
     },
@@ -1010,15 +924,10 @@ function Home({ embedded, onSelectSpace }: InboxPaneProps & { embedded: boolean 
     ) => {
       await chatRpc(chat.spaceId, `${kind}s/update`, { ...chatTarget(kind, chat.id), ...update });
       if (kind === "bot" && update.notifyOnFinish !== undefined) {
-        await afterChatNotifyChange(
-          currentApiBase(),
-          await loadSessionToken(),
-          selectedSpaceId() ?? "",
-          {
-            threadId: "threadId" in chat ? chat.threadId : undefined,
-            notify: update.notifyOnFinish,
-          },
-        );
+        await afterChatNotifyChange(currentApiBase(), selectedSpaceId() ?? "", {
+          threadId: "threadId" in chat ? chat.threadId : undefined,
+          notify: update.notifyOnFinish,
+        });
       }
       await loadBots();
     },
@@ -1032,9 +941,8 @@ function Home({ embedded, onSelectSpace }: InboxPaneProps & { embedded: boolean 
     ) => {
       if (action === "read" || action === "unread") {
         const key = unreadOverrideKey(kind, chat.id);
-        // Queued changes belong to the session and the chat's own Space.
+        // Queued changes belong to the chat's own Space.
         const spaceId = chat.spaceId ?? selectedSpaceId();
-        const session = currentSessionGeneration();
         setUnreadOverrides((current) => new Map(current).set(key, action === "unread"));
         if (action === "read") {
           void dismissThreadNotifications(
@@ -1050,7 +958,6 @@ function Home({ embedded, onSelectSpace }: InboxPaneProps & { embedded: boolean 
           action === "unread",
           async (unread) => {
             const context = await captureApiRequestContext();
-            if (context.sessionGeneration !== session) return;
             const headers = { ...context.headers };
             if (spaceId) headers["x-rakazo-space-id"] = spaceId;
             else delete headers["x-rakazo-space-id"];
@@ -1073,8 +980,6 @@ function Home({ embedded, onSelectSpace }: InboxPaneProps & { embedded: boolean 
               return next;
             }),
         ).catch((err) => {
-          // A change from a session that has since ended is dropped quietly.
-          if (session !== currentSessionGeneration()) return;
           Alert.alert(t("Could not update chat"), errorText(err, t("Try again.")));
         });
         return;
@@ -1357,7 +1262,6 @@ function Home({ embedded, onSelectSpace }: InboxPaneProps & { embedded: boolean 
       </View>
     );
   }
-  if (!hasSession) return <Redirect href="/sign-in" />;
   // With nothing to show, the failure takes the screen; over saved chats it stays one line.
   // Headings of empty saved Spaces are not chats, so they do not hide the failure.
   const showLoadFailure = Boolean(loadFailure) && inboxHasNoChats(listData);
@@ -1377,8 +1281,11 @@ function Home({ embedded, onSelectSpace }: InboxPaneProps & { embedded: boolean 
           ]}
         >
           <View style={styles.circleButton}>
-            <HeaderButton accessibilityLabel={t("Account")} onPress={() => router.push("/account")}>
-              <Text style={styles.profileInitials}>{initials}</Text>
+            <HeaderButton
+              accessibilityLabel={t("Settings")}
+              onPress={() => router.push("/settings")}
+            >
+              <NativeSymbol ios="gearshape" android="settings-outline" size={20} />
             </HeaderButton>
           </View>
           <View style={styles.headerActions}>
@@ -1494,7 +1401,6 @@ function Home({ embedded, onSelectSpace }: InboxPaneProps & { embedded: boolean 
                       message={loadFailure.message}
                       loading={inboxLoading && !refreshing}
                       onRetry={() => void refreshBots()}
-                      onSignIn={() => void signInAgain()}
                     />
                   ) : (
                     <Text style={styles.empty}>{me ? t("Tap + to create a bot") : null}</Text>

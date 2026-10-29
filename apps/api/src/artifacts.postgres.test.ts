@@ -18,7 +18,6 @@ describePostgres("artifact upload nonce (PostgreSQL)", () => {
     userId,
     spaceId,
     email: `${userId}@rakazo.test`,
-    isDeploymentOwner: false,
   };
   const stored = new Set<string>();
   let puts = 0;

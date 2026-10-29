@@ -5,7 +5,7 @@ import path from "node:path";
 import { ComposioConnector, FakeComposioClient, FakeSandboxProvider } from "@rakazo/adapters";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { discardBotIntroRun } from "./discard-bot-intro.js";
-import { sessionCookieHeader } from "./index.js";
+import { OWNER_COOKIE } from "./index.js";
 import { type ModelEmulatorStep, startModelEmulator } from "./model-emulator.js";
 import { asSystem } from "./system-db.js";
 
@@ -95,17 +95,7 @@ describe.skipIf(!databaseAvailable)("offline Pi computer approval", () => {
         // Keep the real fake-provider implementation; observe calls and its state
         // independently of the model's claims and the persisted effect record.
         const act = vi.spyOn(sandbox, "act");
-        const signup = await handles.app.request("/api/auth/sign-up/email", {
-          method: "POST",
-          headers: { "content-type": "application/json", origin: fixtureOrigin },
-          body: JSON.stringify({
-            email: `computer-approval-${randomUUID()}@rakazo.test`,
-            password: "password12",
-            name: "Computer approval fixture",
-          }),
-        });
-        expect(signup.status).toBeLessThan(400);
-        const cookie = sessionCookieHeader(signup);
+        const cookie = OWNER_COOKIE;
         await rpc(handles.app, cookie, "models/connect", {
           provider: model.model.provider,
           modelId: model.model.id,

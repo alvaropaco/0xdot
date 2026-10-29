@@ -61,7 +61,7 @@ pnpm sandbox:build
 pnpm dev
 ```
 
-Open `http://127.0.0.1:5173` and create an account.
+Open `http://127.0.0.1:5173`.
 
 ## Tauri desktop
 

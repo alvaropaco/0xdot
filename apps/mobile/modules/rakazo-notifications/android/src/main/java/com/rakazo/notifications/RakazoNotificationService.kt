@@ -63,7 +63,6 @@ class RakazoNotificationService : Service() {
   private val knownCompleted = mutableSetOf<String>()
   private val alertedAttention = mutableSetOf<String>()
   private var historySpaceId: String? = null
-  private val tokenCache = PollTokenCache()
   private val historyWrites = PollHistoryWrites()
 
   override fun onCreate() {
@@ -79,7 +78,6 @@ class RakazoNotificationService : Service() {
 
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
     val generation = synchronized(sessionLock) {
-      if (intent?.getBooleanExtra(EXTRA_RESET_TOKEN, false) == true) tokenCache.reset()
       sessionGeneration.incrementAndGet().also {
         if (intent?.action == ACTION_THREAD_CHANGED && (openBotId != null || openThreadId != null)) {
           clearLive()
@@ -94,7 +92,6 @@ class RakazoNotificationService : Service() {
   override fun onBind(intent: Intent?): IBinder? = null
 
   override fun onDestroy() {
-    tokenCache.reset()
     scope.cancel()
     super.onDestroy()
   }
@@ -115,25 +112,17 @@ class RakazoNotificationService : Service() {
         stopIfCurrent(generation)
         return
       }
-      val token = tokenCache.getOrLoad({ storage.token }) { cache ->
-        runIfCurrent(generation, cache)
-      } ?: return
-      if (token.isBlank()) {
-        stopIfCurrent(generation)
-        return
-      }
       val seeded = prepareHistorySpace(generation, storage.spaceId) ?: return
       var recentPageBusy = true
       try {
         if (generation != sessionGeneration.get()) return
         val avatarStyle = selectedAvatarStyle
-          ?: avatarStyle(storage.endpoint, token, storage.spaceId)
-            .also { selectedAvatarStyle = it }
+          ?: avatarStyle(storage.endpoint, storage.spaceId).also { selectedAvatarStyle = it }
         if (generation != sessionGeneration.get()) return
-        val active = runs(storage.endpoint, token, storage.spaceId, "active")
+        val active = runs(storage.endpoint, storage.spaceId, "active")
         val working = active.filter(::isWorking).filter { it.notificationsEnabled }
         if (generation != sessionGeneration.get()) return
-        val recent = runs(storage.endpoint, token, storage.spaceId, "recent")
+        val recent = runs(storage.endpoint, storage.spaceId, "recent")
         val replyLookups = mutableListOf<Pair<RunRecord, Boolean>>()
         val immediate = mutableListOf<Pair<RunRecord, NotificationCopy>>()
         if (!runIfCurrent(generation) {
@@ -179,7 +168,7 @@ class RakazoNotificationService : Service() {
         for ((run, scheduled) in replyLookups) {
           if (generation != sessionGeneration.get()) return
           val reply = runCatching {
-            latestReply(storage.endpoint, token, storage.spaceId, run)
+            latestReply(storage.endpoint, storage.spaceId, run)
           }.getOrDefault("")
           if (reply == null) continue
           if (!runIfCurrent(generation) {
@@ -207,11 +196,7 @@ class RakazoNotificationService : Service() {
           return
         }
         cadence.success()
-      } catch (error: ApiException) {
-        if (error.status == 401) {
-          stopIfCurrent(generation)
-          return
-        }
+      } catch (_: ApiException) {
         cadence.failure()
       } catch (_: IOException) {
         cadence.failure()
@@ -400,7 +385,6 @@ class RakazoNotificationService : Service() {
     private const val ACTION_THREAD_CHANGED = "com.rakazo.notifications.THREAD_CHANGED"
     private const val PROMOTED_ONGOING_EXTRA = "android.requestPromotedOngoing"
     private const val RECENT_LIMIT = 20 // Keep in sync with apps/api/src/runs.ts.
-    private const val EXTRA_RESET_TOKEN = "com.rakazo.notifications.RESET_TOKEN"
     private const val STATE_PREFERENCES = "com.rakazo.notification_state"
     private const val SEEN_RUNS = "seen_runs"
     private const val SEEN_RUNS_SEEDED = "seen_runs_seeded"
@@ -411,9 +395,8 @@ class RakazoNotificationService : Service() {
     private var openBotId: String? = null
     private var openThreadId: String? = null
 
-    fun start(context: Context, resetToken: Boolean = true, action: String? = null) {
+    fun start(context: Context, action: String? = null) {
       val intent = Intent(context, RakazoNotificationService::class.java)
-        .putExtra(EXTRA_RESET_TOKEN, resetToken)
       if (action != null) intent.action = action
       runCatching { context.startService(intent) }
         .onFailure { error -> Log.w(TAG, "Could not start notification poller", error) }
@@ -431,19 +414,9 @@ class RakazoNotificationService : Service() {
       if (threadId != null) {
         context.getSystemService(NotificationManager::class.java).cancel(threadId.hashCode())
       }
-      start(context, resetToken = false, action = ACTION_THREAD_CHANGED)
+      start(context, action = ACTION_THREAD_CHANGED)
     }
 
-    fun clearSession(context: Context) {
-      synchronized(sessionLock) {
-        sessionGeneration.incrementAndGet()
-        openBotId = null
-        openThreadId = null
-        stop(context)
-        context.getSharedPreferences(STATE_PREFERENCES, MODE_PRIVATE).edit().clear().apply()
-        context.getSystemService(NotificationManager::class.java).cancelAll()
-      }
-    }
   }
 }
 
@@ -466,8 +439,8 @@ private object Channels {
   const val ATTENTION = "rakazo_attention"
 }
 
-private fun runs(endpoint: String, token: String, spaceId: String, filter: String): List<RunRecord> {
-  val root = rpc(endpoint, token, spaceId, "runs/list", JSONObject().put("filter", filter))
+private fun runs(endpoint: String, spaceId: String, filter: String): List<RunRecord> {
+  val root = rpc(endpoint, spaceId, "runs/list", JSONObject().put("filter", filter))
   val rows = root.optJSONArray("runs") ?: throw IOException("Invalid activity response")
   return List(rows.length()) { index ->
     val row = rows.optJSONObject(index) ?: throw IOException("Invalid activity response")
@@ -490,14 +463,14 @@ private fun runs(endpoint: String, token: String, spaceId: String, filter: Strin
 private fun isWorking(run: RunRecord): Boolean =
   run.status == "queued" || run.status == "leased" || run.status == "running"
 
-private fun avatarStyle(endpoint: String, token: String, spaceId: String): String =
-  rpc(endpoint, token, spaceId, "me", JSONObject()).optString("avatarStyle", "organic")
+private fun avatarStyle(endpoint: String, spaceId: String): String =
+  rpc(endpoint, spaceId, "me", JSONObject()).optString("avatarStyle", "organic")
 
-private fun latestReply(endpoint: String, token: String, spaceId: String, run: RunRecord): String? {
+private fun latestReply(endpoint: String, spaceId: String, run: RunRecord): String? {
   val target = JSONObject().apply {
     if (run.groupId != null) put("groupId", run.groupId) else put("botId", run.botId)
   }
-  val root = rpc(endpoint, token, spaceId, "threads/get", target)
+  val root = rpc(endpoint, spaceId, "threads/get", target)
   val messages = root.optJSONArray("messages") ?: return ""
   for (messageIndex in messages.length() - 1 downTo 0) {
     val message = messages.optJSONObject(messageIndex) ?: continue
@@ -963,7 +936,6 @@ internal fun markdownToPreview(markdown: String): String {
 
 private fun rpc(
   endpoint: String,
-  token: String,
   spaceId: String,
   procedure: String,
   input: JSONObject,
@@ -977,7 +949,6 @@ private fun rpc(
     connection.doOutput = true
     connection.setRequestProperty("Content-Type", "application/json")
     connection.setRequestProperty("Origin", "rakazo://")
-    connection.setRequestProperty("Authorization", "Bearer $token")
     if (spaceId.isNotBlank()) {
       connection.setRequestProperty("x-rakazo-space-id", spaceId)
     }

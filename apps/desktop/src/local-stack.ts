@@ -95,7 +95,6 @@ export function resolveImageTag(input: {
 const GENERATED_SECRETS: Record<string, number> = {
   POSTGRES_PASSWORD: 16,
   POSTGRES_APP_PASSWORD: 16,
-  BETTER_AUTH_SECRET: 32,
   ENCRYPTION_KEY: 32,
   SCREEN_PROXY_SECRET: 32,
   SANDBOX_SUPERVISOR_TOKEN: 32,
@@ -596,7 +595,6 @@ export class LocalStackController {
         RAKAZO_WEB_PORT: new URL(this.currentWebUrl).port || "80",
         // Only web needs a stable host address. Docker allocates the API host port.
         RAKAZO_API_PORT: "0",
-        BETTER_AUTH_URL: this.currentWebUrl,
         WEB_ORIGIN: this.currentWebUrl,
         API_URL: this.currentWebUrl,
         COMPOSE_PROGRESS: "plain",

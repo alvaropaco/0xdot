@@ -1,0 +1,25 @@
+appId: com.rakazo.app
+---
+# Shared prelude after launchApp: dismiss a cold-emulator ANR, point the app at
+# the fixture API when RAKAZO_MOBILE_API_URL is set, and wait for the inbox.
+- extendedWaitUntil:
+    visible: "Researcher|Tap \\+ to create a bot|Could not reach the server|Pixel Launcher isn't responding"
+    timeout: 30000
+- runFlow:
+    when:
+      visible: "Pixel Launcher isn't responding"
+    commands:
+      - tapOn: "Close app"
+      - extendedWaitUntil:
+          visible: "Researcher|Tap \\+ to create a bot|Could not reach the server"
+          timeout: 30000
+- runFlow:
+    when:
+      true: ${typeof RAKAZO_MOBILE_API_URL !== "undefined" && RAKAZO_MOBILE_API_URL != null && RAKAZO_MOBILE_API_URL.trim() !== ""}
+    commands:
+      - tapOn: "Settings"
+      - tapOn: "Server"
+      - runFlow: helpers/server.yaml
+      - extendedWaitUntil:
+          visible: "Researcher|Tap \\+ to create a bot"
+          timeout: 30000

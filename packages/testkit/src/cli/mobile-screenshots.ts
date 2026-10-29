@@ -6,21 +6,19 @@ import { fileURLToPath } from "node:url";
 import { serve } from "@hono/node-server";
 import {
   ComposioConnector,
-  EmailEmulator,
   FakeComposioClient,
   PipedreamConnector,
   ThirdPartyConnectorEmulator,
 } from "@rakazo/adapters";
 import { createThreadMessage, type PrismaClient } from "@rakazo/db";
-import { sessionCookieHeader } from "../index.js";
+import {} from "../index.js";
+import { OWNER_COOKIE } from "./index.js";
 import { runProcess } from "./process.js";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../..");
 const REPORT_DIR = path.join(ROOT, "test-report", "mobile-screenshots");
 const DATA_DIR = path.join(ROOT, ".tmp", "mobile-screenshots-data");
 const FLOW_DIR = path.join(ROOT, "apps", "mobile", ".maestro");
-const EMAIL = "mobile-screenshots@example.test";
-const PASSWORD = "test-password-123";
 const API_PORT = 3110;
 const DEVICE_CONTROL_PORT = 3111;
 const HOST_API_URL = `http://127.0.0.1:${API_PORT}`;
@@ -70,7 +68,6 @@ async function main() {
     apiUrl: HOST_API_URL,
     composio: new ComposioConnector({ client: new FakeComposioClient() }),
     pipedream,
-    email: new EmailEmulator(),
     remoteConnectors: {
       fetch: thirdParties.fetch,
       resolveHostname: thirdParties.resolveHostname,
@@ -150,9 +147,7 @@ async function runFlow(flow: string, fixture: Awaited<ReturnType<typeof seedFixt
       "-e",
       `RAKAZO_MOBILE_API_URL=http://10.0.2.2:${API_PORT}`,
       "-e",
-      `RAKAZO_SCREENSHOT_EMAIL=${EMAIL}`,
       "-e",
-      `RAKAZO_SCREENSHOT_PASSWORD=${PASSWORD}`,
       "-e",
       `RAKAZO_SCREENSHOT_BOT_ID=${fixture.botId}`,
       "-e",
@@ -372,16 +367,9 @@ async function seedFixture(app: App, prisma: PrismaClient) {
   return { botId: researcher.id, groupId: group.id, routineId: routine.id };
 }
 
-async function signup(app: App) {
-  const response = await app.request("/api/auth/sign-up/email", {
-    method: "POST",
-    headers: { "content-type": "application/json", origin: WEB_ORIGIN },
-    body: JSON.stringify({ email: EMAIL, password: PASSWORD, name: "Screenshot User" }),
-  });
-  if (!response.ok) throw new Error(`Fixture signup failed with ${response.status}`);
-  const cookie = sessionCookieHeader(response);
-  if (!cookie) throw new Error("Fixture signup did not return a session cookie");
-  return cookie;
+async function signup(app: App): Promise<string> {
+  void app;
+  return OWNER_COOKIE;
 }
 
 async function rpc<T>(app: App, cookie: string, procedure: string, body: unknown = {}): Promise<T> {

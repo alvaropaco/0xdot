@@ -9,10 +9,9 @@ import "./unsent-sends";
 vi.mock("react-native", () => ({ Alert: { alert: vi.fn() }, AppState: {} }));
 vi.mock("expo-router", () => ({ router: { push: vi.fn() } }));
 vi.mock("./api", () => ({ isServerReachable: vi.fn() }));
-vi.mock("./artifact-cache-session", () => ({}));
+vi.mock("./artifact-cache-namespace", () => ({ artifactCacheNamespace: async () => "ns-1" }));
 vi.mock("./integrations-cache", () => ({}));
 vi.mock("./outbox-disk", () => ({ outboxDisk: {} }));
-vi.mock("./session", () => ({}));
 vi.mock("./thread-feedback", () => ({ configureUnsentSends: vi.fn() }));
 vi.mock("./i18n", () => ({ t: (message: string) => `translated: ${message}` }));
 

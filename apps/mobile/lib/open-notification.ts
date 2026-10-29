@@ -1,7 +1,6 @@
 import * as Notifications from "expo-notifications";
 import { router } from "expo-router";
 import { useEffect } from "react";
-import { loadSessionToken } from "./api";
 import { notificationResponseRoute } from "./notification-open";
 import { closeSettingsSheet } from "./settings-sheet";
 
@@ -36,26 +35,13 @@ export async function openNotificationResponse(
   if (!key || openedResponses.has(key)) return false;
   const target = notificationResponseRoute(response, Notifications.DEFAULT_ACTION_IDENTIFIER);
   if (!target) return false;
-  // Claim before the session read so a cold-start hook and the tap listener
-  // cannot both open the same response.
+  // Claim before opening so a cold-start hook and the tap listener cannot both
+  // open the same response.
   openedResponses.add(key);
-  try {
-    if (!(await loadSessionToken())) {
-      // Expo keeps this tap as the last response. Leaving it there would open
-      // the thread on a later cold start, after sign-in, with no new tap.
-      // A newer delivery can become last while this session read is in flight.
-      clearNotificationResponseIfCurrent(response);
-      openedResponses.delete(key);
-      return false;
-    }
-    closeSettingsSheet();
-    router.push(target);
-    clearNotificationResponseIfCurrent(response);
-    return true;
-  } catch {
-    openedResponses.delete(key);
-    return false;
-  }
+  closeSettingsSheet();
+  router.push(target);
+  clearNotificationResponseIfCurrent(response);
+  return true;
 }
 
 /** Opens the thread for a notification tap, including the tap that cold-started the app. */

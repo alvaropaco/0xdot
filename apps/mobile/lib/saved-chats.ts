@@ -10,16 +10,14 @@ import type {
   MobileSpaceNavigation,
 } from "./api";
 import { currentApiBase, selectedSpaceId } from "./api";
-import { artifactCacheSession } from "./artifact-cache-session";
+import { artifactCacheNamespace } from "./artifact-cache-namespace";
 import { identityLabels } from "./identity-display";
 import type { IntegrationsCacheScope } from "./integrations-cache";
-import { integrationsCacheScope, isIntegrationsScopeCurrent } from "./integrations-cache";
 import {
-  currentSessionGeneration,
-  loadSessionToken,
+  integrationsCacheScope,
+  isIntegrationsScopeCurrent,
   loadVerifiedIntegrationsScope,
-  saveVerifiedIntegrationsScope,
-} from "./session";
+} from "./integrations-cache";
 
 export type SavedChatsScope = IntegrationsCacheScope & { namespace: string };
 
@@ -28,7 +26,7 @@ export type SavedInbox = {
   groups: MobileGroup[];
   botSections: MobileBotSection[];
   spaces: MobileSpace[];
-  me: Pick<MobileMe, "userId" | "spaceId" | "name">;
+  me: Pick<MobileMe, "userId" | "spaceId">;
 };
 
 export const SAVED_CHAT_MESSAGES = 100;
@@ -88,8 +86,7 @@ export function readSavedInbox(scope: SavedChatsScope): SavedInbox | null {
       !isRows(inbox.botSections) ||
       !isRows(inbox.spaces) ||
       me?.userId !== scope.userId ||
-      typeof me.spaceId !== "string" ||
-      typeof me.name !== "string"
+      typeof me.spaceId !== "string"
     )
       return null;
     return displayIdentityResult(["bootstrap"], inbox, identityLabels()) as SavedInbox;
@@ -161,7 +158,7 @@ export function writeSavedInbox(
         groups: space.groups.slice(0, SAVED_INBOX_ROWS),
         externalConversations: [],
       })),
-      me: { userId: me.userId, spaceId: me.spaceId, name: me.name },
+      me: { userId: me.userId, spaceId: me.spaceId },
     };
     if (!isIntegrationsScopeCurrent(scope) || me.userId !== scope.userId) return;
     writeSavedFile(scope, "inbox", { key: scopeKey(scope, "inbox"), inbox });
@@ -170,26 +167,22 @@ export function writeSavedInbox(
 
 export async function savedChatsScope(): Promise<SavedChatsScope | null> {
   clearLegacySavedChats();
-  const generation = currentSessionGeneration();
   const apiBase = currentApiBase();
   const selectionId = selectedSpaceId();
   const verified = await loadVerifiedIntegrationsScope();
   const spaceId = selectionId ?? (verified?.selectionId === null ? verified.spaceId : null);
   if (!verified || verified.apiBase !== apiBase || !spaceId) return null;
-  return withSessionNamespace({
+  return withNamespace({
     apiBase,
     userId: verified.userId,
     spaceId,
-    sessionGeneration: generation,
     selectionId,
   });
 }
 
-async function withSessionNamespace(
-  scope: IntegrationsCacheScope,
-): Promise<SavedChatsScope | null> {
+async function withNamespace(scope: IntegrationsCacheScope): Promise<SavedChatsScope | null> {
   try {
-    const namespace = await artifactCacheSession(await loadSessionToken());
+    const namespace = await artifactCacheNamespace();
     return isIntegrationsScopeCurrent(scope) ? { ...scope, namespace } : null;
   } catch {
     return null;
@@ -200,7 +193,7 @@ export async function liveSavedChatsScope(): Promise<SavedChatsScope | null> {
   const saved = await savedChatsScope();
   if (saved) return saved;
   const verified = await integrationsCacheScope().catch(() => null);
-  return verified ? withSessionNamespace(verified) : null;
+  return verified ? withNamespace(verified) : null;
 }
 
 export async function loadSavedInbox(): Promise<SavedInbox | null> {
@@ -214,9 +207,7 @@ export function saveInbox(
   me: MobileMe,
 ): void {
   if (!isIntegrationsScopeCurrent(verifiedLoad) || verifiedLoad.userId !== me.userId) return;
-  const { sessionGeneration, ...verified } = verifiedLoad;
-  void saveVerifiedIntegrationsScope(sessionGeneration, verified);
-  void withSessionNamespace(verifiedLoad).then((scope) => {
+  void withNamespace(verifiedLoad).then((scope) => {
     if (scope) writeSavedInbox(scope, navigation, me);
   });
 }

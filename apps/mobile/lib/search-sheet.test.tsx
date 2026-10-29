@@ -19,7 +19,6 @@ const state = vi.hoisted(() => ({
   selectionSeq: 0,
   spaceId: "space-a" as string | null,
   persistedSpaceId: "space-a",
-  generation: 1,
   apiBase: "https://example.test",
   dismiss: vi.fn(),
   alert: vi.fn(),
@@ -69,7 +68,6 @@ vi.mock("./api", () => ({
   selectedSpaceId: () => state.spaceId,
   currentApiBase: () => state.apiBase,
 }));
-vi.mock("./session", () => ({ currentSessionGeneration: () => state.generation }));
 vi.mock("./search", () => ({ querySpaceSearch: state.search }));
 vi.mock("./search-inbox", () => ({
   getSearchInbox: () => spaces,
@@ -172,7 +170,6 @@ beforeEach(() => {
   state.spaceId = "space-a";
   state.selectionSeq = 0;
   state.persistedSpaceId = "space-a";
-  state.generation = 1;
   state.apiBase = "https://example.test";
   state.selectSpace.mockImplementation(async (id: string) => {
     state.spaceId = id || null;
@@ -466,7 +463,7 @@ it.each(
   },
 );
 
-it.each(["session", "server", "selection"])(
+it.each(["server", "selection"])(
   "does not restore a cancelled attempt over a newer %s",
   async (changed) => {
     let resolve!: () => void;
@@ -477,8 +474,7 @@ it.each(["session", "server", "selection"])(
     );
     await act(async () => row("Team, Group").click());
     act(() => state.lifecycle.get("blur")!());
-    if (changed === "session") state.generation++;
-    else if (changed === "server") state.apiBase = "https://other.example.test";
+    if (changed === "server") state.apiBase = "https://other.example.test";
     else state.spaceId = "space-c";
     await act(async () => resolve());
     expect(state.replace).not.toHaveBeenCalled();

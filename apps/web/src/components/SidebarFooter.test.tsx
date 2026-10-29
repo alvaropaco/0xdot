@@ -29,27 +29,15 @@ afterEach(async () => {
   vi.restoreAllMocks();
 });
 async function render(
-  name = "Demo User",
-  image?: string,
   onIntegrations = vi.fn(),
   onBoard?: () => void,
   logos?: Array<{ name: string; logo?: string }>,
 ) {
-  const email = "account@rakazo.test";
   await act(async () =>
     root.render(
       <DesktopUpdatesProvider>
         <SidebarFooter
           logos={logos}
-          name={name}
-          initials={name
-            .split(" ")
-            .map((part) => part[0])
-            .join("")
-            .slice(0, 2)
-            .toUpperCase()}
-          image={image}
-          email={email}
           open
           onOpenChange={() => {}}
           onIntegrations={onIntegrations}
@@ -57,9 +45,6 @@ async function render(
           onArtifacts={() => {}}
           onSettings={() => {}}
           onUsage={() => {}}
-          onLogOut={() => {}}
-          signingOut={false}
-          logOutError={null}
         />
         <Toaster />
       </DesktopUpdatesProvider>,
@@ -110,7 +95,7 @@ it.each(["unsupported", "idle", "available", "downloading", "checking", "error"]
 );
 it("installs the ready update only through the footer button", async () => {
   const install = bridge("ready");
-  await render("Ada Lovelace");
+  await render();
   const icon = document.querySelector<HTMLButtonElement>('[aria-label="Install update"]')!;
   expect(icon).not.toBeNull();
   expect(document.body.textContent).not.toContain("New update available");
@@ -120,19 +105,10 @@ it("installs the ready update only through the footer button", async () => {
     [...document.querySelectorAll("button")].some((button) => button.textContent === "Install"),
   ).toBe(false);
 });
-it("shows the account image and falls back to the initial after a load error", async () => {
-  await render("Ada Lovelace", "https://example.test/avatar.png");
-  const trigger = host.querySelector('[data-testid="user-menu-trigger"]')!;
-  const image = trigger.querySelector("img")!;
-  expect(image.src).toBe("https://example.test/avatar.png");
-  await act(async () => image.dispatchEvent(new Event("error")));
-  expect(trigger.querySelector("img")).toBeNull();
-  expect(trigger.textContent).toBe("AL");
-});
 
-it("opens integrations and keeps the existing account actions and links", async () => {
+it("opens integrations and keeps the menu actions and links", async () => {
   const onIntegrations = vi.fn();
-  await render("Demo User", undefined, onIntegrations, vi.fn());
+  await render(onIntegrations, vi.fn());
   const connect = [...host.querySelectorAll("button")].find((button) =>
     button.textContent?.includes("Connect apps"),
   )!;
@@ -146,10 +122,9 @@ it("opens integrations and keeps the existing account actions and links", async 
     "Board",
     "Artifacts",
     "Settings",
-    "Log out",
   ]);
   expect(host.querySelector('[data-testid="user-menu-trigger"]')?.getAttribute("aria-label")).toBe(
-    "Account menu for Demo User",
+    "Menu",
   );
 });
 it("omits Board when unavailable", async () => {
@@ -171,16 +146,14 @@ it("offers the existing Android download on Android", async () => {
 });
 
 it("falls back when app artwork fails and accepts replacement artwork", async () => {
-  await render("Demo User", undefined, undefined, undefined, [
-    { name: "Slack", logo: "https://example.test/slack.svg" },
-  ]);
+  await render(undefined, undefined, [{ name: "Slack", logo: "https://example.test/slack.svg" }]);
   const pill = [...host.querySelectorAll("button")].find((button) =>
     button.textContent?.includes("Connect apps"),
   )!;
   await act(async () => pill.querySelector("img")!.dispatchEvent(new Event("error")));
   expect(pill.querySelector("img")).toBeNull();
   expect(pill.textContent).toContain("S");
-  await render("Demo User", undefined, undefined, undefined, [
+  await render(undefined, undefined, [
     { name: "Slack", logo: "https://example.test/new-slack.svg" },
   ]);
   expect(pill.querySelector("img")?.src).toBe("https://example.test/new-slack.svg");
@@ -234,7 +207,7 @@ it.each([
 });
 
 it("keeps at most three marks with the same tile and a missing-logo fallback", async () => {
-  await render("Demo User", undefined, undefined, undefined, [
+  await render(undefined, undefined, [
     { name: "Gmail", logo: "https://example.test/gmail.svg" },
     { name: "Notion" },
     { name: "GitHub", logo: "https://example.test/github.svg" },

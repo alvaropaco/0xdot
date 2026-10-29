@@ -500,7 +500,6 @@ it("collapses a section from its heading and keeps the choice for the account", 
     useMemo,
     useState,
     spaceInboxItems,
-    loadSessionToken: async () => "token",
     loadCollapsedSections,
     saveCollapsedSections,
     Platform: { OS: "ios" },
@@ -573,14 +572,13 @@ it("collapses a section from its heading and keeps the choice for the account", 
     "  useEffect(() => {\n    void loadActivityMode()",
   );
   const sessionSource = slice(
-    "  useEffect(() => {\n    void Promise.all([loadSessionToken(), loadCollapsedSections()])",
-    "  useEffect(() => {\n    if (!hasSession) return;\n    void registerPushToken",
+    "  useEffect(() => {\n    void loadCollapsedSections()",
+    "  useEffect(() => {\n    void registerPushToken",
   );
   const listSource = slice("  const renderItem = useCallback(", "  if (!ready) {");
   const compiled = ts.transpileModule(
     `return function List({ spaces, me }) {
       const [ready, setReady] = useState(false);
-      const [, setHasSession] = useState(false);
       ${stateSource}\n${sessionSource}\n${listSource}
       if (!ready) return null;
       return spaceInboxItems(spaces, collapsed, me.spaceId).map((item, index) =>

@@ -19,7 +19,6 @@ describePostgres("space search with CONTENT_ENCRYPTION on and off (PostgreSQL)",
     userId,
     spaceId,
     email: `${userId}@rakazo.test`,
-    isDeploymentOwner: false,
   };
   let on: ReturnType<typeof createDb>;
   let off: ReturnType<typeof createDb>;

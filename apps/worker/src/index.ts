@@ -17,7 +17,6 @@ import {
   createConnectorStack,
   createJobReconciler,
   createMessagingContextLoader,
-  createModelCreditReconciler,
   createPostgresReconciliationLeadership,
   createProductAnalytics,
   createReservedGraphileJobWorkerHost,
@@ -28,7 +27,6 @@ import {
   createTicketChangeNotifier,
   createWebProvider,
   databaseCapacityBackoffMs,
-  deploymentModelUsageLookup,
   ExpoPushProvider,
   GraphileJobPublisher,
   homeStorageSweeper,
@@ -72,7 +70,6 @@ import {
   installSecurityEventStore,
   isTooManyDatabaseConnections,
   parsePositiveInteger,
-  pushSessionExpiresAt,
   rowSecurityWarning,
   runAsSystem,
   securityEventRetentionDays,
@@ -211,7 +208,6 @@ async function main() {
   const cloudAgent = createCloudAgentConnection();
   // Shared with the reconciler so a stuck wait uses the same push path as a finish notice.
   const notifications = new ExpoPushProvider(dataDir, {
-    sessionExpiresAt: (sessionId) => pushSessionExpiresAt(prisma, sessionId),
     jobs,
     accessToken: process.env.EXPO_ACCESS_TOKEN,
   });
@@ -294,10 +290,6 @@ async function main() {
     events,
     notifications,
     leadership: createPostgresReconciliationLeadership(pool),
-    reconcileModelCredits: createModelCreditReconciler({
-      prisma,
-      lookup: deploymentModelUsageLookup(),
-    }),
     reconcileCloudAgents: () => reconcileCloudAgents({ prisma, jobs, cloudAgent }),
     reconcileComputerUpdates: () => reconcileComputerUpdates({ prisma, jobs }),
     reconcileRoutineRetryNotices: inMemoryJobs

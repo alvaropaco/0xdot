@@ -6,30 +6,19 @@ function prismaForMembership(found: boolean) {
   return {
     spaceMember: {
       findFirst: vi.fn(async ({ where }: { where: { userId: string; spaceId?: string } }) =>
-        found
-          ? {
-              userId: where.userId,
-              spaceId: where.spaceId ?? "space-default",
-              member: { user: { email: "owner@example.test" } },
-            }
-          : null,
+        found ? { userId: where.userId, spaceId: where.spaceId ?? "space-default" } : null,
       ),
-    },
-    deploymentSettings: {
-      findUnique: vi.fn(async () => ({ ownerUserId: "user-1" })),
     },
   } as unknown as PrismaClient;
 }
 
 describe("requireMembership", () => {
-  it("scopes the actor without granting privileges to a stored deployment owner", async () => {
+  it("resolves the actor from the owner's membership", async () => {
     const prisma = prismaForMembership(true);
 
     await expect(requireMembership(prisma, "user-1", "space-support")).resolves.toEqual({
       userId: "user-1",
       spaceId: "space-support",
-      email: "owner@example.test",
-      isDeploymentOwner: false,
     });
     expect(prisma.spaceMember.findFirst).toHaveBeenCalledWith(
       expect.objectContaining({

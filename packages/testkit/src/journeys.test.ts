@@ -27,7 +27,6 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { createApp } from "../../../apps/api/src/app.ts";
 import type { BotIntroHarness } from "./discard-bot-intro.js";
 import { discardBotIntroFromCreate } from "./discard-bot-intro.js";
-import { sessionCookieHeader } from "./index.js";
 import { createModelConnectionFixtureFetch } from "./model-connection-fixture.js";
 import { asSystem } from "./system-db.js";
 
@@ -147,7 +146,6 @@ describeJourneys("required product journeys", () => {
 
   it("computer updates preserve the workspace and reserve the shared computer until completion", async () => {
     const cookie = await signup(app, `maintenance-${stamp}@rakazo.test`, "Maintenance");
-    const outsider = await signup(app, `maintenance-other-${stamp}@rakazo.test`, "Other workspace");
     const bot = await rpc<Bot>(app, cookie, "bots/create", {
       name: "Writer",
       title: "Writer",
@@ -197,7 +195,6 @@ describeJourneys("required product journeys", () => {
           (await prisma.computerUpdate.findUniqueOrThrow({ where: { id: update.id } })).stage ===
           "saving",
       );
-      expect(await rpc(app, outsider, "computer/updates")).toEqual([]);
       const duplicate = await app.request("/rpc/computer/update", {
         method: "POST",
         headers: { "Content-Type": "application/json", Cookie: cookie },
@@ -375,13 +372,10 @@ describeJourneys("required product journeys", () => {
     ).toBe(0);
   });
 
-  it("1+2: users are isolated and workspace bots share the Team Computer", async () => {
+  it("1+2: workspace bots share the Team Computer", async () => {
     const ada = await signup(app, `ada-j-${stamp}@rakazo.test`, "Ada Journey");
-    const bob = await signup(app, `bob-j-${stamp}@rakazo.test`, "Bob Journey");
 
     const adaMe = await rpc<Me>(app, ada, "me");
-    const bobMe = await rpc<Me>(app, bob, "me");
-    expect(adaMe.spaceId).not.toBe(bobMe.spaceId);
 
     const chief = await rpc<Bot>(app, ada, "bots/create", {
       name: "Chief",
@@ -397,27 +391,17 @@ describeJourneys("required product journeys", () => {
       instructions: "",
       notifyOnFinish: true,
     });
-    const bobBot = await rpc<Bot>(app, bob, "bots/create", {
-      name: "Chief",
-      title: "Chief of staff",
-      description: "Bob's bot",
-      instructions: "",
-      notifyOnFinish: true,
-    });
-    const [chiefRecord, coderRecord, bobRecord] = await Promise.all(
-      [chief.id, coder.id, bobBot.id].map((id) =>
+    const [chiefRecord, coderRecord] = await Promise.all(
+      [chief.id, coder.id].map((id) =>
         prisma.bot.findUniqueOrThrow({ where: { id }, include: { computer: true } }),
       ),
     );
     expect(chief.computerMode).toBe("team");
     expect(coder.computerMode).toBe("team");
     expect(chiefRecord.computerId).toBe(coderRecord.computerId);
-    expect(chiefRecord.computerId).not.toBe(bobRecord.computerId);
 
-    const bobList = await rpc<Bot[]>(app, bob, "bots/list");
-    expect(bobList.map((b) => b.id)).not.toContain(chief.id);
-    const forbidden = await raw(app, bob, "bots/get", { botId: chief.id });
-    expect(forbidden.status).toBeGreaterThanOrEqual(400);
+    const missing = await raw(app, ada, "bots/get", { botId: "bot-not-there" });
+    expect(missing.status).toBeGreaterThanOrEqual(400);
 
     const pinned = await rpc<Bot>(app, ada, "bots/update", { botId: coder.id, pinned: true });
     expect(pinned.pinned).toBe(true);
@@ -442,12 +426,6 @@ describeJourneys("required product journeys", () => {
     expect(
       (await rpc<Bot[]>(app, ada, "bots/list")).find((bot) => bot.id === coder.id)?.sectionId,
     ).toBe(section.id);
-    const foreignSection = await raw(app, bob, "bots/update", {
-      botId: bobBot.id,
-      sectionId: section.id,
-    });
-    expect(foreignSection.status).toBeGreaterThanOrEqual(400);
-    expect(await rpc<unknown[]>(app, bob, "botSections/list")).toEqual([]);
     const renamed = await rpc<{ id: string; name: string }>(app, ada, "botSections/update", {
       sectionId: section.id,
       name: "Delivery",
@@ -465,16 +443,9 @@ describeJourneys("required product journeys", () => {
       name: "Archive",
     });
     expect(renameClash.status).toBe(409);
-    const foreignRename = await raw(app, bob, "botSections/update", {
-      sectionId: section.id,
-      name: "Stolen",
-    });
-    expect(foreignRename.status).toBeGreaterThanOrEqual(400);
     expect(await rpc<Array<{ id: string; name: string }>>(app, ada, "botSections/list")).toEqual(
       expect.arrayContaining([expect.objectContaining({ id: section.id, name: "Delivery" })]),
     );
-    const foreignDelete = await raw(app, bob, "botSections/remove", { sectionId: section.id });
-    expect(foreignDelete.status).toBeGreaterThanOrEqual(400);
     expect(await rpc(app, ada, "botSections/remove", { sectionId: section.id })).toEqual({
       id: section.id,
       releasedBots: 1,
@@ -553,7 +524,6 @@ describeJourneys("required product journeys", () => {
     await rpc<Bot>(app, ada, "bots/setComputer", { botId: coder.id, mode: "dedicated" });
     const reusedDedicated = await prisma.bot.findUniqueOrThrow({ where: { id: coder.id } });
     expect(reusedDedicated.computerId).toBe(dedicatedRecord.computerId);
-    expect(bobBot.id).not.toBe(chief.id);
   });
 
   it("guards memory edits by revision while preserving legacy clients", async () => {
@@ -1618,7 +1588,6 @@ describeJourneys("required product journeys", () => {
 
   it("10: bots can be archived safely and deleted with or without their memories", async () => {
     const ada = await signup(app, `delete-j-${stamp}@rakazo.test`, "Delete Ada");
-    const bob = await signup(app, `delete-bob-j-${stamp}@rakazo.test`, "Delete Bob");
     const keep = await rpc<Bot>(app, ada, "bots/create", {
       name: "Keep",
       title: "",
@@ -1681,10 +1650,6 @@ describeJourneys("required product journeys", () => {
       },
     });
 
-    const stolen = await raw(app, bob, "bots/archive", { botId: gone.id });
-    expect(stolen.status).toBeGreaterThanOrEqual(400);
-    expect((await rpc<Bot[]>(app, ada, "bots/list")).map((bot) => bot.id)).toContain(gone.id);
-
     await rpc(app, ada, "bots/archive", { botId: gone.id });
     expect((await rpc<Bot[]>(app, ada, "bots/list")).map((bot) => bot.id)).not.toContain(gone.id);
     expect((await rpc<Bot[]>(app, ada, "bots/listArchived")).map((bot) => bot.id)).toContain(
@@ -1726,35 +1691,6 @@ describeJourneys("required product journeys", () => {
 
     await rpc(app, ada, "bots/remove", { botId: forget.id, deleteMemories: true });
     expect(await prisma.memoryDocument.findUnique({ where: { id: forgetMemory.id } })).toBeNull();
-  });
-
-  it("11: deleting an account removes the user and personal workspace data", async () => {
-    const email = `account-delete-j-${stamp}@rakazo.test`;
-    const cookie = await signup(app, email, "Delete Account");
-    const me = await rpc<Me>(app, cookie, "me");
-    const bot = await rpc<Bot>(app, cookie, "bots/create", {
-      name: "Temporary",
-      title: "",
-      description: "",
-      instructions: "",
-      notifyOnFinish: true,
-    });
-
-    const deleted = await app.request("/api/auth/delete-user", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        cookie,
-        origin: "http://127.0.0.1:5173",
-      },
-      body: JSON.stringify({ password: "password12" }),
-    });
-
-    expect(deleted.status).toBe(200);
-    expect(await prisma.user.findUnique({ where: { id: me.userId } })).toBeNull();
-    expect(await prisma.organization.findUnique({ where: { id: me.spaceId } })).toBeNull();
-    expect(await prisma.bot.findUnique({ where: { id: bot.id } })).toBeNull();
-    expect((await raw(app, cookie, "me")).status).toBeGreaterThanOrEqual(400);
   });
 
   it("12: a bot can spawn a regular bot and must confirm the name to delete it", async () => {
@@ -2098,7 +2034,6 @@ describeJourneys("required product journeys", () => {
 
   it("16: routine test-run and plugin connect/revoke", async () => {
     const ada = await signup(app, `plug-j-${stamp}@rakazo.test`, "Plug Ada");
-    const bob = await signup(app, `plug-bob-j-${stamp}@rakazo.test`, "Plug Bob");
     const bot = await rpc<Bot>(app, ada, "bots/create", {
       name: "Chief",
       title: "",
@@ -2142,12 +2077,6 @@ describeJourneys("required product journeys", () => {
       connectionId: started.connectionId,
     });
     expect(connected.status).toBe("connected");
-    await rpc(app, bob, "connections/revoke", { connectionId: started.connectionId });
-    expect(
-      (await rpc<Array<{ id: string; status: string }>>(app, ada, "connections/list")).find(
-        (row) => row.id === started.connectionId,
-      )?.status,
-    ).toBe("connected");
     await rpc(app, ada, "connections/revoke", { connectionId: started.connectionId });
     expect(
       (await rpc<Array<{ id: string; status: string }>>(app, ada, "connections/list")).find(
@@ -3419,14 +3348,11 @@ describeJourneys("required product journeys", () => {
 
     it("organize_bot sets, clears and pins sections for bots and groups of the user only", async () => {
       const { cookie, me, chief } = await fleetOwner("organize");
-      const outsider = await signup(
-        app,
-        `bot-management-organize-other-${stamp}@rakazo.test`,
-        "Other",
-      );
-      const outsiderMe = await rpc<Me>(app, outsider, "me");
+      // A row owned by another identity inside the same space: the owner must
+      // never see or organize it.
+      const strangerUserId = `stranger-${stamp}`;
       const foreignSection = await prisma.botSection.create({
-        data: { spaceId: me.spaceId, userId: outsiderMe.userId, name: "Research", position: 0 },
+        data: { spaceId: me.spaceId, userId: strangerUserId, name: "Research", position: 0 },
       });
       const alpha = await createBot(cookie, "Alpha");
       const beta = await createBot(cookie, "Beta");
@@ -3500,7 +3426,28 @@ describeJourneys("required product journeys", () => {
       expect(await eventCount(crew.threadId, "group.updated")).toBe(3);
 
       expect(await prisma.bot.count({ where: { sectionId: foreignSection.id } })).toBe(0);
-      const foreignBot = await createBot(outsider, "Stranger");
+      const foreignBot = await prisma.bot.create({
+        data: {
+          id: `stranger-bot-${stamp}`,
+          spaceId: me.spaceId,
+          userId: strangerUserId,
+          name: "Stranger",
+          title: "",
+          description: "",
+          instructions: "",
+          notifyOnFinish: true,
+          computerMode: "team",
+          pinned: false,
+        },
+      });
+      await prisma.thread.create({
+        data: {
+          id: `stranger-thread-${stamp}`,
+          botId: foreignBot.id,
+          userId: strangerUserId,
+          spaceId: me.spaceId,
+        },
+      });
       const refused = await sendAndWait(app, cookie, chief.id, "pin the bot named Stranger");
       expect(await toolOutcomes(refused.run.id, "organize_bot")).toEqual([
         expect.objectContaining({
@@ -3925,19 +3872,16 @@ type Snap = {
   activeRuns?: Array<{ id: string; status: string }>;
 };
 
-async function signup(app: App, email: string, name: string) {
-  const res = await app.request("/api/auth/sign-up/email", {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      origin: "http://127.0.0.1:5173",
-    },
-    body: JSON.stringify({ email, password: "password12", name }),
-  });
-  if (res.status >= 400) {
-    throw new Error(`signup failed ${res.status}: ${await res.text()}`);
-  }
-  return sessionCookieHeader(res);
+/**
+ * There are no accounts: every request acts as the deployment owner. Kept as a
+ * no-op so journeys read the same way they used to; the returned string is an
+ * inert header value that request helpers keep sending.
+ */
+async function signup(app: App, email: string, name: string): Promise<string> {
+  void app;
+  void email;
+  void name;
+  return "x-owner-journey=1";
 }
 
 async function raw(app: App, cookie: string, proc: string, body: unknown = {}) {

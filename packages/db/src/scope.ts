@@ -10,12 +10,17 @@ export class IsolationError extends Error {
 
 /** Unique (spaceId, userId, name) collision when renaming a bot section. */
 export class BotSectionNameConflictError extends Error {
-  constructor(message = "Section name already used") {
+  constructor(message = "Resource name already used") {
     super(message);
     this.name = "BotSectionNameConflictError";
   }
 }
 
+/**
+ * Resolve the actor for a request. There are no app accounts, so this always
+ * resolves the deployment owner's membership; the requested-space header only
+ * picks which of the owner's spaces to act in.
+ */
 export async function requireMembership(
   prisma: PrismaClient,
   userId: string,
@@ -27,17 +32,12 @@ export async function requireMembership(
       ...(requestedSpaceId ? { spaceId: requestedSpaceId } : {}),
     },
     orderBy: [{ space: { isDefault: "desc" } }, { createdAt: "asc" }, { id: "asc" }],
-    include: { member: { include: { user: true } } },
+    select: { userId: true, spaceId: true },
   });
   if (!membership) {
     throw new IsolationError("No personal space");
   }
-  return {
-    userId: membership.userId,
-    spaceId: membership.spaceId,
-    email: membership.member.user.email,
-    isDeploymentOwner: false,
-  };
+  return { userId: membership.userId, spaceId: membership.spaceId };
 }
 
 export function scoped<T extends { spaceId: string; userId?: string }>(

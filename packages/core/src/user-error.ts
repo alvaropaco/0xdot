@@ -95,35 +95,3 @@ export function userErrorMessage(error: unknown, copy: UserErrorCopy): string {
   ).trim();
   return message && !isTechnicalErrorMessage(message) ? message : copy.fallback;
 }
-
-export type CredentialField = "email" | "password";
-
-const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-/** Catches empty or malformed credentials before they round-trip to the server. */
-export function credentialIssue(input: {
-  email: string;
-  password?: string;
-}): CredentialField | null {
-  if (!EMAIL.test(input.email.trim())) return "email";
-  if (input.password !== undefined && !input.password) return "password";
-  return null;
-}
-
-export type AuthErrorCopy = Record<CredentialField, string> & { fallback: string };
-
-/**
- * Copy for a failed auth response body (`{ code, message }`). Request validation failures name
- * the rejected inputs as issue paths (`[body.email] …`), so map those to field copy.
- */
-export function authErrorMessage(body: unknown, copy: AuthErrorCopy): string {
-  const record = body && typeof body === "object" ? (body as Record<string, unknown>) : {};
-  const message = typeof record.message === "string" ? record.message : "";
-  if (record.code === "VALIDATION_ERROR") {
-    const fields = new Set([...message.matchAll(/\[body\.(\w+)/g)].map((match) => match[1]));
-    if (fields.has("email")) return copy.email;
-    if (fields.has("password")) return copy.password;
-    return copy.fallback;
-  }
-  return message && !isTechnicalErrorMessage(message) ? message : copy.fallback;
-}

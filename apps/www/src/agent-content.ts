@@ -87,43 +87,41 @@ Rakazo targets the web, macOS, Linux, iOS, and Android. The source is available 
 
 export const SUPPORT_MARKDOWN = `# Rakazo support
 
-For help with the Rakazo mobile app or a hosted Rakazo account, email [hello@rakazo.com](mailto:hello@rakazo.com). Include the email address on the account, what you expected to happen, and any error message you saw. Never send passwords, API keys, access tokens, or other secrets.
+For help with the Rakazo apps, email [hello@rakazo.com](mailto:hello@rakazo.com). Include what you expected to happen, and any error message you saw. Never send passwords, API keys, access tokens, or other secrets.
 
 For self-hosted Rakazo, start with the [self-hosting guide](https://rakazo.com/self-hosted-ai-agent/). The [full reference](https://github.com/elie222/rakazo/blob/main/docs/self-host.md) is on GitHub. Open reproducible bugs and feature requests in the [public GitHub repository](https://github.com/elie222/rakazo/issues). Report vulnerabilities only to [security@rakazo.com](mailto:security@rakazo.com).
-
-Hosted users can permanently delete their account and associated personal Space data from the Account screen in the Rakazo app.
 `;
 
 export const PRIVACY_MARKDOWN = `# Rakazo privacy
 
 Last updated: September 14, 2026
 
-Rakazo processes account details, user-provided bot content, connection information, and technical records needed to operate and secure the service. Content comes from what you enter, upload, record, or authorize your bots to access. Rakazo does not sell personal information or use Rakazo content for third-party advertising.
+Rakazo processes user-provided bot content, connection information, and technical records needed to operate and secure the service. Content comes from what you enter, upload, record, or authorize your bots to access. Rakazo does not sell personal information or use Rakazo content for third-party advertising.
 
 Before submitting content or starting AI work, the Rakazo mobile app names the configured recipients, explains the data and purpose, and asks permission. Messages, relevant history, instructions, memories, attachments, screenshots, and connected-app content may be sent to model services for responses and tasks, including scheduled tasks. Recorded audio may be sent for transcription and text for speech generation. Conversation summaries, memories, queries, and bot and Space identifiers may be sent to a configured memory service.
 
 Supported connections include OpenAI, Anthropic, Google, OpenRouter, Vercel AI Gateway, Cursor, custom model servers, ElevenLabs, Cartesia, Fish Audio, and Supermemory. The mobile disclosure identifies the configured services. Gateways forward requests to model providers according to their routing settings and provider agreements. The mobile permission flow does not modify provider routing or promise zero retention.
 
-Permission records include the recipient, Space, disclosure version, and time. Choose Not now to decline, or withdraw permission in Account → AI data sharing for new mobile actions. Stop existing runs and disable routines separately. Withdrawal cannot recall data already sent. Web, desktop, and self-hosted server workflows do not use this mobile permission flow.
+Permission records include the recipient, Space, disclosure version, and time. Choose Not now to decline, or withdraw permission in Settings → AI data sharing for new mobile actions. Stop existing runs and disable routines separately. Withdrawal cannot recall data already sent. Web, desktop, and self-hosted server workflows do not use this mobile permission flow.
 
 Services we select must provide protection equal to or greater than the safeguards in our complete policy, including limited processing purposes, security, retention, and deletion protections. We review provider terms and safeguards before enabling a provider. Self-hosted operators are responsible for the services they select and their agreements. Provider terms govern processing and retention after receipt; provider policy links are available in AI data sharing and in the complete policy.
 
-Hosted users can delete their account and associated personal Space data from Account. In self-hosted deployments, the server operator controls information sent to that deployment. For privacy requests, email [hello@rakazo.com](mailto:hello@rakazo.com).
+In self-hosted deployments, the server operator controls information sent to that deployment. For privacy requests, email [hello@rakazo.com](mailto:hello@rakazo.com).
 
-Read the [complete privacy policy](https://rakazo.com/privacy/) for account information, other service providers, retention, deletion, security, international transfers, children, and your rights.
+Read the [complete privacy policy](https://rakazo.com/privacy/) for other service providers, retention, deletion, security, international transfers, children, and your rights.
 `;
 
 export const TERMS_MARKDOWN = `# Rakazo terms
 
-Last updated: October 7, 2026
+Last updated: October 28, 2026
 
-These terms are an agreement between you and Inbox Zero Inc. for the Rakazo service we host, the Rakazo apps, and rakazo.com. The Rakazo source code is governed by the Apache License 2.0, which does not grant rights to the Rakazo name or logo, and self-hosted deployments are the operator's responsibility.
+These terms are an agreement between you and Inbox Zero Inc. for the Rakazo apps and rakazo.com. The Rakazo source code is governed by the Apache License 2.0, which does not grant rights to the Rakazo name or logo, and self-hosted deployments are the operator's responsibility.
 
-You are responsible for your account and for actions your bots take on your behalf, including in scheduled routines; give bots only the access they need and require approval for actions that are hard to undo. AI output can be wrong, so review it before relying on it, and do not use the Service where an error could cause serious harm. Do not use the Service to break the law, send spam or malware, access systems without authorization, abuse its computers, or violate the terms of connected providers. You keep ownership of your content and bot output, and you pay any fees charged by third-party services, including usage on your own API keys.
+You are responsible for your instance and for actions your bots take on your behalf, including in scheduled routines; give bots only the access they need and require approval for actions that are hard to undo. AI output can be wrong, so review it before relying on it, and do not use the Service where an error could cause serious harm. Do not use the Service to break the law, send spam or malware, access systems without authorization, abuse bot computers, or violate the terms of connected providers. You keep ownership of your content and bot output, and you pay any fees charged by third-party services, including usage on your own API keys.
 
-Free trials convert to a paid plan when they end unless cancelled before then. Plans may include usage limits, and we may slow or pause usage that exceeds them. Paid plans renew automatically until cancelled and are charged through Stripe. Cancel at any time from billing settings or by emailing [hello@rakazo.com](mailto:hello@rakazo.com); access continues until the end of the paid period. Payments are non-refundable and not prorated except where required by law. Charges made in error are refunded when reported within 30 days. If we close your account or stop offering the Service for reasons other than a violation of these terms, we refund prepaid fees for the unused period. Consumers in the EU and UK can withdraw from a new subscription within 14 days and are refunded less the value of the Service already provided.
+Rakazo is free, self-hosted software. An operator runs their own instance with their own API keys; we do not charge for the software, and there are no accounts, subscriptions, trials, or refunds.
 
-The Service is provided as is. Our liability is limited to the greater of what you paid us in the previous 12 months or US$100, except where the law does not allow a limit. Delaware law governs these terms.
+The Service is provided as is. Our liability is limited to US$100, except where the law does not allow a limit. Delaware law governs these terms.
 
 Read the [complete terms](https://rakazo.com/terms/) for acceptable use, termination and data deletion, disclaimers, indemnity, app store terms, changes, and contact details.
 `;

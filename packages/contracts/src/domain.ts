@@ -1519,11 +1519,7 @@ export const MeSchema = z.object({
   ticketBoardEnabled: z.boolean(),
   phoneCallsEnabled: z.boolean().default(false),
   userId: Id,
-  email: z.string().email(),
-  name: z.string(),
   spaceId: Id,
-  /** Deprecated: app accounts never have server administrator privileges. Always false. */
-  isDeploymentOwner: z.boolean(),
   needsModel: z.boolean(),
   defaultProvider: z.string().nullable(),
   defaultModel: z.string().nullable(),
@@ -1540,76 +1536,8 @@ export const MeSchema = z.object({
    * Absent from servers that predate it.
    */
   timezone: z.string().nullable().optional(),
-  /** True when this deployment bills model usage. */
-  billingEnabled: z.boolean(),
-  /** True until a user of a billing deployment answers or skips the signup survey. Absent from older servers. */
-  needsSignupSurvey: z.boolean().optional(),
 });
 export type Me = z.infer<typeof MeSchema>;
-
-export const MODEL_CREDIT_AMOUNTS = [1000, 2000, 5000, 10000, 20000, 50000] as const;
-export const DEFAULT_MONTHLY_CREDIT_AMOUNT = 2000;
-export const ModelCreditAmountSchema = z.union(
-  MODEL_CREDIT_AMOUNTS.map((amount) => z.literal(amount)),
-);
-
-export const SIGNUP_SURVEY_USES = ["personal", "work", "both"] as const;
-export const SIGNUP_SURVEY_TEAM_SIZES = ["1", "2-10", "11-50", "51-200", "201+"] as const;
-
-/** Team sizes as shown: en dashes for ranges, and the open-ended bucket as "200+". */
-export function signupSurveyTeamSizeLabel(size: (typeof SIGNUP_SURVEY_TEAM_SIZES)[number]): string {
-  return size === "201+" ? "200+" : size.replace("-", "–");
-}
-
-/** Every answer is optional; an empty survey records that the user skipped it. */
-export const SignupSurveySchema = z.object({
-  reason: z.string().trim().max(2000).optional(),
-  use: z.enum(SIGNUP_SURVEY_USES).optional(),
-  /** Only kept when the survey asks it; see signupSurveyAsksTeamSize. */
-  teamSize: z.enum(SIGNUP_SURVEY_TEAM_SIZES).optional(),
-  source: z.string().trim().max(500).optional(),
-});
-export type SignupSurvey = z.infer<typeof SignupSurveySchema>;
-
-export function signupSurveyAsksTeamSize(use: SignupSurvey["use"]): boolean {
-  return use === "work" || use === "both";
-}
-
-export const BillingStatusSchema = z.object({
-  funding: z.enum(["byok", "credits"]).nullable().optional(),
-  balanceUsd: z.number().optional(),
-  monthlyAmountCents: z.number().int().positive().nullable().optional(),
-  creditPurchasesEnabled: z.boolean().optional(),
-  access: z.boolean(),
-  /** Only organization owners start checkout or open the billing portal. */
-  canManage: z.boolean(),
-  trialAvailable: z.boolean(),
-  trialDays: z.number().int().nonnegative(),
-  state: z.enum([
-    "none",
-    "trialing",
-    "active",
-    "past_due",
-    "incomplete",
-    "unpaid",
-    "paused",
-    "canceled",
-  ]),
-  price: z
-    .object({
-      amount: z.number().int().nonnegative(),
-      currency: z.string(),
-      interval: z.enum(["day", "week", "month", "year"]),
-      intervalCount: z.number().int().positive(),
-    })
-    .nullable(),
-  seats: z.number().int().nonnegative(),
-  trialEndsAt: z.string().nullable(),
-  currentPeriodEndsAt: z.string().nullable(),
-  cancelAtPeriodEnd: z.boolean(),
-  hasCustomer: z.boolean(),
-});
-export type BillingStatus = z.infer<typeof BillingStatusSchema>;
 
 export const AppBootstrapSchema = z.object({
   me: MeSchema,

@@ -5,7 +5,7 @@ import path from "node:path";
 import { ComposioConnector, FakeComposioClient } from "@rakazo/adapters";
 import { describe, expect, it } from "vitest";
 import { discardBotIntroRun } from "./discard-bot-intro.js";
-import { sessionCookieHeader } from "./index.js";
+import { OWNER_COOKIE } from "./index.js";
 import type { ModelEmulatorRequest } from "./model-emulator.js";
 import { startModelEmulator } from "./model-emulator.js";
 import { asSystem } from "./system-db.js";
@@ -185,17 +185,7 @@ describe.skipIf(!enabled)("history retrieval through executor", () => {
         });
         stop = handles.stop;
         const db = asSystem(handles.prisma);
-        const signup = await handles.app.request("/api/auth/sign-up/email", {
-          method: "POST",
-          headers: { "content-type": "application/json", origin },
-          body: JSON.stringify({
-            email: `history-${randomUUID()}@rakazo.test`,
-            password: "password12",
-            name: "History fixture",
-          }),
-        });
-        expect(signup.status).toBeLessThan(400);
-        const cookie = sessionCookieHeader(signup);
+        const cookie = OWNER_COOKIE;
         const rpc = async <T>(procedure: string, input: unknown): Promise<T> => {
           const response = await handles.app.request(`/rpc/${procedure}`, {
             method: "POST",

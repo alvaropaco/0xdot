@@ -220,10 +220,7 @@ const subscriptionMe: Me = {
   ticketBoardEnabled: false,
   phoneCallsEnabled: false,
   userId: "user-demo",
-  email: "ada@example.test",
-  name: "Ada",
   spaceId: "space-demo",
-  isDeploymentOwner: true,
   needsModel: false,
   defaultProvider: "anthropic",
   defaultModel: "claude-sonnet-5-5",
@@ -233,7 +230,6 @@ const subscriptionMe: Me = {
   canChooseHostComputer: true,
   sandboxProvider: "docker",
   avatarStyle: "organic",
-  billingEnabled: false,
 };
 
 const subscriptionCatalog: ModelCatalogEntry[] = [
@@ -487,8 +483,8 @@ function SubscriptionShot() {
       className="min-h-screen bg-background text-foreground"
     >
       <SettingsOverlay
-        email="ada@example.test"
-        name="Ada"
+        timezone={null}
+        onTimezoneChange={async () => undefined}
         section="models"
         onSectionChange={() => undefined}
         memoryConfig={null}

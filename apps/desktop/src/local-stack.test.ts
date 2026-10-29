@@ -69,12 +69,7 @@ describe("renderStackEnv", () => {
 
     expect(lines).toContain(`POSTGRES_PASSWORD=${"ab".repeat(16)}`);
     expect(lines).toContain(`POSTGRES_APP_PASSWORD=${"ab".repeat(16)}`);
-    for (const name of [
-      "BETTER_AUTH_SECRET",
-      "ENCRYPTION_KEY",
-      "SCREEN_PROXY_SECRET",
-      "SANDBOX_SUPERVISOR_TOKEN",
-    ]) {
+    for (const name of ["ENCRYPTION_KEY", "SCREEN_PROXY_SECRET", "SANDBOX_SUPERVISOR_TOKEN"]) {
       expect(lines).toContain(`${name}=${"ab".repeat(32)}`);
     }
     expect(lines.some((line) => line.startsWith("RAKAZO_IMAGE_TAG="))).toBe(false);
@@ -622,7 +617,6 @@ describe("LocalStackController", () => {
     expect(calls.at(-1)?.env).toMatchObject({
       RAKAZO_API_PORT: "0",
       WEB_ORIGIN: stack.webUrl(),
-      BETTER_AUTH_URL: stack.webUrl(),
       API_URL: stack.webUrl(),
     });
     expect(await readFile(path.join(root, "stack", ".desktop-web-url"), "utf8")).toBe(

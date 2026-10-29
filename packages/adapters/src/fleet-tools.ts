@@ -1036,7 +1036,7 @@ export async function createChildRoutine(
 }
 
 function actorOf(run: FleetRun): Actor {
-  return { spaceId: run.spaceId, userId: run.userId, email: "", isDeploymentOwner: false };
+  return { spaceId: run.spaceId, userId: run.userId };
 }
 
 const DEFAULT_ISOLATION_MESSAGE = new IsolationError().message;

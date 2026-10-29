@@ -39,9 +39,6 @@ async function main() {
   const udid = requiredEnv("SIM_UDID");
   const apiUrl = requiredEnv("RAKAZO_API_URL").replace(/\/$/, "");
   const databaseUrl = requiredEnv("DATABASE_URL");
-  const email = requiredEnv("RAKAZO_SCREENSHOT_EMAIL");
-  const emptyEmail = requiredEnv("RAKAZO_SCREENSHOT_EMPTY_EMAIL");
-  const password = requiredEnv("RAKAZO_SCREENSHOT_PASSWORD");
   const outDir = path.resolve(
     process.env.IOS_SCREENSHOT_OUT || path.join(ROOT, "test-report", "ios-screenshots"),
   );
@@ -51,13 +48,7 @@ async function main() {
   if (requested.length === 0) await rm(outDir, { recursive: true, force: true });
   await mkdir(outDir, { recursive: true });
 
-  const fixture = await seedIosScreenshotFixture({
-    apiUrl,
-    databaseUrl,
-    email,
-    emptyEmail,
-    password,
-  });
+  const fixture = await seedIosScreenshotFixture({ apiUrl, databaseUrl });
 
   const results: SectionResult[] = [];
   for (const section of sections) {
@@ -78,12 +69,6 @@ async function main() {
             path.join(work, "debug"),
             "--test-output-dir",
             path.join(work, "out"),
-            "-e",
-            `RAKAZO_SCREENSHOT_EMAIL=${email}`,
-            "-e",
-            `RAKAZO_SCREENSHOT_EMPTY_EMAIL=${emptyEmail}`,
-            "-e",
-            `RAKAZO_SCREENSHOT_PASSWORD=${password}`,
             "-e",
             `RAKAZO_SCREENSHOT_BOT_ID=${fixture.botId}`,
             "-e",

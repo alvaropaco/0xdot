@@ -8,7 +8,6 @@ const actor: Actor = {
   spaceId: "space-1",
   userId: "user-1",
   email: "user@rakazo.test",
-  isDeploymentOwner: true,
 };
 
 describe("call route gates", () => {

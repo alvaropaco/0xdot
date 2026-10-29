@@ -46,7 +46,6 @@ function fixture(blocks: unknown[]) {
     userId: "user",
     spaceId: "space",
     email: "user@rakazo.test",
-    isDeploymentOwner: true,
   };
   return { deps, actor, tx };
 }

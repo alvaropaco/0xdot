@@ -1,6 +1,4 @@
 import type {
-  AccountSecurity,
-  AuthCapabilities,
   Bot,
   BotSection,
   ComputerMode,
@@ -14,13 +12,7 @@ import type {
   Space,
   SpaceNavigation,
 } from "@rakazo/contracts";
-import {
-  accountSecuritySchema,
-  authCapabilitiesSchema,
-  CLIENT_UPDATE_REQUIRED_STATUS,
-  legacyAccountSecurity,
-  legacyAuthCapabilitiesSchema,
-} from "@rakazo/contracts";
+import { CLIENT_UPDATE_REQUIRED_STATUS } from "@rakazo/contracts";
 import type { ThreadHistory } from "@rakazo/core";
 import {
   aiConsentTarget,
@@ -28,7 +20,6 @@ import {
   cancelResponseBody,
   displayIdentityEvent,
   displayIdentityResult,
-  displayName,
   ensureAiDataConsent,
   isActive,
   isBackgroundRunTrigger,
@@ -45,7 +36,6 @@ import {
   replyMetadata,
   runFailureError,
   settleRunSubagents,
-  signupRequiresEmailVerification,
   stopsRunHelpers,
   takeLiveMessage,
   updateCloudAgentMessages,
@@ -60,28 +50,14 @@ import { t } from "./i18n";
 import { identityLabels } from "./identity-display";
 import { resumeLiveNotifications } from "./live-notifications";
 import { reportMobileError } from "./monitoring";
-import {
-  clearSessionToken,
-  currentSessionGeneration,
-  loadSessionToken,
-  replaceSessionTokenIfCurrent,
-  restoreSessionToken,
-  saveSessionToken,
-  saveVerifiedIntegrationsScope,
-  snapshotSessionToken,
-  tokenFromAuthResponse,
-} from "./session";
 import { clearUnsentSends } from "./thread-feedback";
-import { authResponseErrorText, errorText, sessionSaveErrorText } from "./user-error";
+import { errorText } from "./user-error";
 
 const ENDPOINT_KEY = "rakazo.api_base";
 const SPACE_KEY = "rakazo.space_id";
 const SPACE_ROLLBACK_KEY = "rakazo.space_rollback";
 const RPC_TIMEOUT_MS = 8_000;
-export const MAX_MOBILE_AUTH_RESPONSE_BYTES = 256 * 1024;
 export const MAX_MOBILE_RPC_RESPONSE_BYTES = 16 * 1024 * 1024;
-/** Inbox bootstrap reads safe to replay without a Space header during auth recovery. */
-const SPACE_AUTH_RECOVERY_SAFE_PROCS = new Set(["spaces/list", "me"]);
 
 let cachedApiBase: string | undefined;
 const apiBaseListeners = new Set<() => void>();
@@ -212,9 +188,7 @@ export async function selectSpace(id: string) {
     }
     return false;
   }
-  await resumeLiveNotifications(currentApiBase(), await loadSessionToken(), id).catch(
-    () => undefined,
-  );
+  await resumeLiveNotifications(currentApiBase(), id).catch(() => undefined);
   return true;
 }
 
@@ -238,18 +212,14 @@ export async function adoptDeletedSpaceFallback(id: string): Promise<boolean> {
     // SPACE_KEY is authoritative; drop a rollback we may have written only to
     // overwrite a stale record (best-effort).
     await clearStoredValue(SPACE_ROLLBACK_KEY);
-    await resumeLiveNotifications(currentApiBase(), await loadSessionToken(), id).catch(
-      () => undefined,
-    );
+    await resumeLiveNotifications(currentApiBase(), id).catch(() => undefined);
     return true;
   }
   // Clear before saving recovery: an empty selection lets startup resolve the
   // server default even when the recovery record cannot be written.
   const staleSelectionCleared = await clearStoredValue(SPACE_KEY);
   const recoverySaved = await saveSpaceRollback(id);
-  await resumeLiveNotifications(currentApiBase(), await loadSessionToken(), id).catch(
-    () => undefined,
-  );
+  await resumeLiveNotifications(currentApiBase(), id).catch(() => undefined);
   // Only treat a cleared selection as durable success when no same-endpoint
   // rollback remains to override it after restart.
   return recoverySaved || (staleSelectionCleared && (await clearStoredValue(SPACE_ROLLBACK_KEY)));
@@ -258,15 +228,6 @@ export async function adoptDeletedSpaceFallback(id: string): Promise<boolean> {
 export async function selectInitialSpace(id: string) {
   if (selectedSpaceId()) return true;
   return selectSpace(id);
-}
-
-export async function clearSpace(): Promise<boolean> {
-  const spaceCleared = await clearStoredValue(SPACE_KEY);
-  const rollbackCleared = await clearStoredValue(SPACE_ROLLBACK_KEY);
-  if (!spaceCleared || !rollbackCleared) return false;
-  cachedSpaceId = "";
-  bumpSpaceSelectionGeneration();
-  return true;
 }
 
 async function clearStoredValue(key: string): Promise<boolean> {
@@ -296,21 +257,19 @@ async function snapshotSpace(): Promise<{ ok: true; value: string } | { ok: fals
   }
 }
 
-/** Clears session + space for an endpoint change. Restores both if either wipe fails. */
-async function clearCredentialsForEndpointChange(): Promise<
+/** Clears the Space selection for an endpoint change. Restores it if the wipe fails. */
+async function clearSpaceForEndpointChange(): Promise<
   | {
       ok: true;
-      previousToken: string;
       previousSpace: string;
     }
   | { ok: false; result: EndpointResult }
 > {
-  const previousToken = await snapshotSessionToken();
   const previousSpace = await snapshotSpace();
-  if (!previousToken.ok || !previousSpace.ok) {
+  if (!previousSpace.ok) {
     return {
       ok: false,
-      result: { ok: false, error: t("Could not clear the previous server session") },
+      result: { ok: false, error: t("Could not switch servers") },
     };
   }
   const rollbackReady = previousSpace.value
@@ -319,30 +278,27 @@ async function clearCredentialsForEndpointChange(): Promise<
   if (!rollbackReady) {
     return {
       ok: false,
-      result: { ok: false, error: t("Could not clear the previous server session") },
+      result: { ok: false, error: t("Could not switch servers") },
     };
   }
-  const sessionCleared = await clearSessionToken();
   cachedSpaceId = "";
   bumpSpaceSelectionGeneration();
   const spaceCleared = await clearStoredValue(SPACE_KEY);
-  if (sessionCleared && spaceCleared) {
+  if (spaceCleared) {
     return {
       ok: true,
-      previousToken: previousToken.value,
       previousSpace: previousSpace.value,
     };
   }
 
-  await restoreCredentials(previousToken.value, previousSpace.value);
+  await restoreSpace(previousSpace.value);
   return {
     ok: false,
-    result: { ok: false, error: t("Could not clear the previous server session") },
+    result: { ok: false, error: t("Could not switch servers") },
   };
 }
 
-async function restoreCredentials(previousToken: string, previousSpace: string) {
-  if (previousToken) await restoreSessionToken(previousToken);
+async function restoreSpace(previousSpace: string) {
   if (previousSpace) {
     cachedSpaceId = previousSpace;
     bumpSpaceSelectionGeneration();
@@ -352,11 +308,7 @@ async function restoreCredentials(previousToken: string, previousSpace: string) 
     } catch {
       // The endpoint-bound rollback record restores this selection after restart.
     }
-  }
-  if (previousToken) {
-    await resumeLiveNotifications(currentApiBase(), previousToken, previousSpace).catch(
-      () => undefined,
-    );
+    await resumeLiveNotifications(currentApiBase(), previousSpace).catch(() => undefined);
   }
 }
 
@@ -404,12 +356,11 @@ export async function saveApiBase(input: string): Promise<EndpointResult> {
   const previous = currentApiBase();
   let cleared:
     | {
-        previousToken: string;
         previousSpace: string;
       }
     | undefined;
   if (parsed.url !== previous) {
-    const result = await clearCredentialsForEndpointChange();
+    const result = await clearSpaceForEndpointChange();
     if (!result.ok) return result.result;
     cleared = result;
   }
@@ -417,7 +368,7 @@ export async function saveApiBase(input: string): Promise<EndpointResult> {
     await SecureStore.setItemAsync(ENDPOINT_KEY, parsed.url);
   } catch {
     if (cleared) {
-      await restoreCredentials(cleared.previousToken, cleared.previousSpace);
+      await restoreSpace(cleared.previousSpace);
     }
     return { ok: false, error: t("Could not save the server URL") };
   }
@@ -431,12 +382,11 @@ export async function resetApiBase(): Promise<EndpointResult> {
   const url = defaultApiBase();
   let cleared:
     | {
-        previousToken: string;
         previousSpace: string;
       }
     | undefined;
   if (url !== previous) {
-    const result = await clearCredentialsForEndpointChange();
+    const result = await clearSpaceForEndpointChange();
     if (!result.ok) return result.result;
     cleared = result;
   }
@@ -444,7 +394,7 @@ export async function resetApiBase(): Promise<EndpointResult> {
     await SecureStore.deleteItemAsync(ENDPOINT_KEY);
   } catch {
     if (cleared) {
-      await restoreCredentials(cleared.previousToken, cleared.previousSpace);
+      await restoreSpace(cleared.previousSpace);
       return { ok: false, error: t("Could not clear the custom server URL") };
     }
   }
@@ -463,19 +413,16 @@ export function configureClientBuild(options: typeof clientBuild): void {
   clientBuild = options;
 }
 
-export async function authHeaders(
+export async function requestHeaders(
   spaceId: string | null = selectedSpaceId(),
 ): Promise<Record<string, string>> {
-  const token = await loadSessionToken();
   return {
     ...clientBuild.headers(),
-    ...(token ? { authorization: `Bearer ${token}` } : {}),
     ...(spaceId ? { "x-rakazo-space-id": spaceId } : {}),
   };
 }
 
 export type ApiRequestContext = {
-  sessionGeneration?: number;
   apiBase: string;
   headers: Record<string, string>;
 };
@@ -486,298 +433,12 @@ export function aiConsentCoalesceKey(requestContext: ApiRequestContext): string 
 }
 
 export async function captureApiRequestContext(): Promise<ApiRequestContext> {
-  const generation = currentSessionGeneration();
   const apiBase = currentApiBase();
-  const headers = await authHeaders(selectedSpaceId());
+  const headers = await requestHeaders(selectedSpaceId());
   if (apiBase !== currentApiBase()) {
     throw new Error(t("The server changed while starting the request"));
   }
-  if (generation !== currentSessionGeneration())
-    throw new Error(t("Something went wrong. Try again."));
-  return { apiBase, headers, sessionGeneration: generation };
-}
-
-async function postAuth(path: string, input: Record<string, string>) {
-  return fetchMobileJson<unknown>(
-    `${currentApiBase()}/api/auth/${path}`,
-    {
-      method: "POST",
-      headers: { "content-type": "application/json", origin: "rakazo://" },
-      body: JSON.stringify(input),
-    },
-    {},
-  );
-}
-
-async function authenticate(
-  path: string,
-  input: Record<string, string>,
-  missingSession: string,
-): Promise<{ verificationRequired: boolean }> {
-  const { response, body, invalidJson } = await postAuth(path, input);
-  if (!response.ok || invalidJson) {
-    throw new Error(authResponseErrorText(response.status, body, invalidJson));
-  }
-  const token = tokenFromAuthResponse(response, body);
-  if (path === "sign-up/email" && signupRequiresEmailVerification(body))
-    return { verificationRequired: true };
-  if (!token) throw new Error(missingSession);
-  try {
-    if (!(await clearSpace()))
-      throw new Error(t("Could not save your sign-in on this device. Try again."));
-    await saveSessionToken(token);
-  } catch (error) {
-    throw new Error(sessionSaveErrorText(error));
-  }
-  return { verificationRequired: false };
-}
-
-export function signIn(email: string, password: string) {
-  return authenticate("sign-in/email", { email, password }, t("Sign-in did not return a session"));
-}
-
-export function signUp(email: string, password: string, name: string) {
-  return authenticate(
-    "sign-up/email",
-    { email, password, name },
-    t("Sign-up did not return a session"),
-  );
-}
-
-/** Always succeeds when the server accepts the request, whether or not an email was sent. */
-export async function sendSignInCode(email: string): Promise<void> {
-  const { response, body, invalidJson } = await postAuth("email-otp/send-verification-otp", {
-    email,
-    type: "sign-in",
-  });
-  if (!response.ok) throw new Error(authResponseErrorText(response.status, body, invalidJson));
-}
-
-/** Signs in with an emailed code, creating the account (with `name`) when none exists. */
-export async function signInWithCode(email: string, code: string, name?: string): Promise<void> {
-  await authenticate(
-    "sign-in/email-otp",
-    { email, otp: code, ...(name ? { name } : {}) },
-    t("Sign-in did not return a session"),
-  );
-}
-
-export type PasswordResetCapabilities = AuthCapabilities;
-
-export async function passwordResetCapabilities(): Promise<PasswordResetCapabilities> {
-  const { response, body } = await fetchMobileJson<unknown>(
-    `${currentApiBase()}/api/auth/capabilities`,
-    { headers: { origin: "rakazo://" } },
-  );
-  if (!response.ok) throw new Error(t("Could not load sign-in options"));
-  return authCapabilitiesSchema.or(legacyAuthCapabilitiesSchema).parse(body);
-}
-
-export async function requestPasswordReset(email: string, redirectTo: string): Promise<void> {
-  const { response, body, invalidJson } = await fetchMobileJson<unknown>(
-    `${currentApiBase()}/api/auth/request-password-reset`,
-    {
-      method: "POST",
-      headers: { "content-type": "application/json", origin: "rakazo://" },
-      body: JSON.stringify({ email, redirectTo }),
-    },
-    {},
-  );
-  if (!response.ok)
-    throw new Error(
-      authResponseErrorText(response.status, body, invalidJson, t("Could not send reset email")),
-    );
-}
-
-export async function updateAccountName(name: string): Promise<void> {
-  const nextName = name.trim();
-  if (!nextName || nextName.length > 80 || !displayName(nextName, "")) {
-    throw new Error(t("Could not update name"));
-  }
-  const { response, body, invalidJson } = await fetchMobileJson<unknown>(
-    `${currentApiBase()}/api/auth/update-user`,
-    {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        origin: "rakazo://",
-        ...(await authHeaders()),
-      },
-      body: JSON.stringify({ name: nextName }),
-    },
-    {},
-  );
-  if (!response.ok)
-    throw new Error(
-      authResponseErrorText(response.status, body, invalidJson, t("Could not update name")),
-    );
-}
-
-/** Revoking other sessions also refuses this one until the replacement is saved. */
-let passwordChangesInFlight = 0;
-
-export async function changePassword(currentPassword: string, newPassword: string): Promise<void> {
-  passwordChangesInFlight += 1;
-  try {
-    await replaceSessionAfterPasswordChange(currentPassword, newPassword);
-  } finally {
-    passwordChangesInFlight -= 1;
-  }
-}
-
-async function replaceSessionAfterPasswordChange(currentPassword: string, newPassword: string) {
-  const apiBase = currentApiBase();
-  const generation = currentSessionGeneration();
-  const headers = await authHeaders();
-  const { response, body, invalidJson } = await fetchMobileJson<unknown>(
-    `${apiBase}/api/auth/change-password`,
-    {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        origin: "rakazo://",
-        ...headers,
-      },
-      body: JSON.stringify({ currentPassword, newPassword, revokeOtherSessions: true }),
-    },
-    {},
-  );
-  if (!response.ok)
-    throw new Error(
-      authResponseErrorText(response.status, body, invalidJson, t("Could not change password")),
-    );
-  // Revoking other sessions also revokes this one; keep the replacement the server issued.
-  const token = tokenFromAuthResponse(response, body);
-  if (!token) return;
-  // A sign-out or server switch changes the session while the request is in flight.
-  if (currentApiBase() !== apiBase) return;
-  const maybeResume = async () => {
-    // Our save is the only change allowed; a sign-out during it must not restart notifications.
-    const spaceId = selectedSpaceId();
-    if (spaceId && currentSessionGeneration() === generation + 1) {
-      await resumeLiveNotifications(apiBase, token, spaceId).catch(() => undefined);
-    }
-  };
-  try {
-    if (!(await replaceSessionTokenIfCurrent(generation, token))) return;
-  } catch (error) {
-    // The replacement is already in memory; resume before the keychain error reaches the UI.
-    await maybeResume();
-    throw error;
-  }
-  await maybeResume();
-}
-
-export async function fetchMobileJson<T>(
-  input: Parameters<typeof fetch>[0],
-  init: RequestInit,
-  invalidJsonFallback?: T,
-): Promise<{ response: Response; body: T; invalidJson?: boolean }> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(new Error("Request timed out")), RPC_TIMEOUT_MS);
-  try {
-    const response = await withAbort(
-      fetch(input, { ...init, signal: controller.signal }),
-      controller.signal,
-    ).catch((error: unknown) => {
-      throw requestError(error, controller.signal);
-    });
-    try {
-      const body = await readBoundedJsonResponse<T>(
-        response,
-        MAX_MOBILE_AUTH_RESPONSE_BYTES,
-        controller.signal,
-      );
-      return { response, body };
-    } catch (error) {
-      if (invalidJsonFallback !== undefined && error instanceof SyntaxError) {
-        return { response, body: invalidJsonFallback, invalidJson: true };
-      }
-      throw requestError(error, controller.signal);
-    }
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-export async function signOut() {
-  await rpc("notifications/unregisterPush").catch(() => undefined);
-  const headers = await authHeaders();
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), RPC_TIMEOUT_MS);
-  try {
-    await withAbort(
-      fetch(`${currentApiBase()}/api/auth/sign-out`, {
-        method: "POST",
-        headers: { "content-type": "application/json", origin: "rakazo://", ...headers },
-        body: "{}",
-        signal: controller.signal,
-      }),
-      controller.signal,
-    ).catch(() => undefined);
-  } finally {
-    clearTimeout(timer);
-  }
-  const sessionCleared = await clearSessionToken();
-  const spaceCleared = await clearSpace();
-  if (!sessionCleared || !spaceCleared) throw new Error(t("Could not clear the local session"));
-}
-
-function withAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
-  if (signal.aborted) return Promise.reject(signal.reason ?? new Error("Request timed out"));
-  return new Promise<T>((resolve, reject) => {
-    const onAbort = () => reject(signal.reason ?? new Error("Request timed out"));
-    signal.addEventListener("abort", onAbort, { once: true });
-    promise.then(
-      (value) => {
-        signal.removeEventListener("abort", onAbort);
-        resolve(value);
-      },
-      (error: unknown) => {
-        signal.removeEventListener("abort", onAbort);
-        reject(error);
-      },
-    );
-  });
-}
-
-export async function deleteAccount(password?: string, token?: string) {
-  await rpc("notifications/unregisterPush").catch(() => undefined);
-  const { response, body, invalidJson } = await fetchMobileJson<unknown>(
-    `${currentApiBase()}/api/auth/delete-user`,
-    {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        origin: "rakazo://",
-        ...(await authHeaders()),
-      },
-      body: JSON.stringify({ password, token }),
-    },
-    {},
-  );
-  if (!response.ok) {
-    throw new Error(
-      authResponseErrorText(response.status, body, invalidJson, t("Could not delete account")),
-    );
-  }
-  await clearSessionToken();
-  await clearSpace();
-}
-
-const sessionRejectedListeners = new Set<() => void>();
-
-/** Runs after the server rejected the stored session and it was cleared. */
-export function subscribeSessionRejected(listener: () => void): () => void {
-  sessionRejectedListeners.add(listener);
-  return () => {
-    sessionRejectedListeners.delete(listener);
-  };
-}
-
-async function rejectSession() {
-  await clearSessionToken();
-  for (const listener of sessionRejectedListeners) listener();
+  return { apiBase, headers };
 }
 
 export async function rpc<T>(
@@ -787,11 +448,8 @@ export async function rpc<T>(
     signal?: AbortSignal;
     timeoutMs?: number | null;
     requestContext?: ApiRequestContext;
-    skipSpaceAuthRecovery?: boolean;
   } = {},
 ): Promise<T> {
-  const requestSpaceGeneration = spaceSelectionGeneration;
-  const requestSessionGeneration = currentSessionGeneration();
   const requestApiBase = options.requestContext?.apiBase ?? currentApiBase();
   const uses = aiDataUsesForProcedure(proc, body);
   const consentContext =
@@ -826,17 +484,8 @@ export async function rpc<T>(
             ),
           options.timeoutMs ?? RPC_TIMEOUT_MS,
         );
-  // Bind recovery to the Space + selection epoch this request was sent with:
-  // a 401 arriving after the user switched Spaces — including A → B → A —
-  // belongs to a stale request and must not touch the current selection.
-  const requestHeaders = consentContext?.headers ?? (await authHeaders());
-  const requestSpaceId = requestHeaders["x-rakazo-space-id"];
+  const headers = consentContext?.headers ?? (await requestHeaders());
   try {
-    if (
-      consentContext?.sessionGeneration !== undefined &&
-      consentContext.sessionGeneration !== currentSessionGeneration()
-    )
-      throw new Error(t("Something went wrong. Try again."));
     let res: Response;
     const correlation = clientCorrelationHeaders();
     try {
@@ -845,7 +494,7 @@ export async function rpc<T>(
         headers: {
           "content-type": "application/json",
           origin: "rakazo://",
-          ...requestHeaders,
+          ...headers,
           ...correlation,
         },
         body: JSON.stringify({ json: body }),
@@ -859,11 +508,7 @@ export async function rpc<T>(
         reportMobileError(error, "rpc.transport", responseCorrelation(new Headers(correlation)));
       throw requestError(error, controller.signal);
     }
-    if (
-      requestSessionGeneration === currentSessionGeneration() &&
-      requestApiBase === currentApiBase()
-    )
-      noteServerReachable(!isUnreachableStatus(res.status));
+    if (requestApiBase === currentApiBase()) noteServerReachable(!isUnreachableStatus(res.status));
     if (proc === "aiConsent/status" && res.status === 404) {
       cancelResponseBody(res);
       throw new Error(t("Update your server to use AI data sharing in this mobile version."));
@@ -882,114 +527,11 @@ export async function rpc<T>(
       // server's user-facing copy.
       const error = parsed.json as { message?: unknown; code?: unknown } | undefined;
       const message = errorText(typeof error?.message === "string" ? error.message : "");
-      const unauthorized = res.status === 401;
-      // Without a Space header a 401 means the server no longer accepts the
-      // session itself; Space recovery below probes the same way. Clearing it
-      // bumps the session generation, so only the first rejection of a session
-      // acts, and a 401 sent before a newer sign-in or a password change on
-      // this device cannot clear the session that replaced it.
-      if (
-        unauthorized &&
-        !requestSpaceId &&
-        requestHeaders.authorization &&
-        !options.requestContext &&
-        !passwordChangesInFlight &&
-        requestSessionGeneration === currentSessionGeneration()
-      ) {
-        await rejectSession();
-      }
-      // After a delete where SecureStore could not clear the stale id, restart
-      // reloads it and the first RPCs 401. Probe once without a Space header:
-      // success means the selection was inaccessible (clear it); failure means
-      // the session itself is bad (restore the selection; it stays until
-      // sign-in resets it). Never replay a mutation against the default
-      // Space — only safe reads may retry as themselves; other procs probe
-      // with spaces/list, then fail the original call.
-      const previousSpaceId = selectedSpaceId();
-      // Clear stale selection records, then re-persist a Space selected while
-      // cleanup was in flight: check-then-clear cannot be atomic on
-      // SecureStore, so reconcile afterwards instead of trusting the check.
-      const clearStaleSpaceSelection = async () => {
-        await clearStoredValue(SPACE_KEY);
-        await clearStoredValue(SPACE_ROLLBACK_KEY);
-        const reselected = selectedSpaceId();
-        if (!reselected) return;
-        // Own the reconcile write by generation: a newer selection that
-        // persists between snapshot and write must not be overwritten by
-        // this stale id, and a write that lands stale heals once to live.
-        const writeGeneration = spaceSelectionGeneration;
-        await writeStoredValue(SPACE_KEY, reselected);
-        if (spaceSelectionGeneration !== writeGeneration) {
-          const live = selectedSpaceId();
-          if (live) await writeStoredValue(SPACE_KEY, live);
-        }
-      };
-      if (
-        unauthorized &&
-        previousSpaceId &&
-        requestSpaceId &&
-        selectedSpaceId() === requestSpaceId &&
-        spaceSelectionGeneration === requestSpaceGeneration &&
-        !options.requestContext &&
-        !options.skipSpaceAuthRecovery
-      ) {
-        cachedSpaceId = "";
-        bumpSpaceSelectionGeneration();
-        const retrySameProc = SPACE_AUTH_RECOVERY_SAFE_PROCS.has(proc);
-        // Share the original deadline/cancellation with recovery calls instead
-        // of starting a second full timeout behind the first request.
-        const recoveryOptions: {
-          signal?: AbortSignal;
-          timeoutMs?: number | null;
-          requestContext?: ApiRequestContext;
-          skipSpaceAuthRecovery?: boolean;
-        } = {
-          ...options,
-          timeoutMs: null,
-          signal: controller.signal,
-          skipSpaceAuthRecovery: true,
-        };
-        try {
-          if (retrySameProc) {
-            const result = await rpc<T>(proc, body, recoveryOptions);
-            // A Space selected while the retry was in flight already owns both
-            // the in-memory and durable selection; leave it alone.
-            if (!selectedSpaceId()) await clearStaleSpaceSelection();
-            return result;
-          }
-          await rpc("spaces/list", {}, recoveryOptions);
-        } catch (retryError) {
-          if (!selectedSpaceId()) {
-            cachedSpaceId = previousSpaceId;
-            bumpSpaceSelectionGeneration();
-          }
-          throw retryError;
-        }
-        if (!selectedSpaceId()) await clearStaleSpaceSelection();
-        throw new Error(message);
-      }
       throw httpError(message, res, typeof error?.code === "string" ? error.code : undefined);
-    }
-    const verifiedUser = parsed.json as { userId?: unknown; spaceId?: unknown } | null;
-    if (
-      proc === "me" &&
-      typeof verifiedUser?.userId === "string" &&
-      typeof verifiedUser.spaceId === "string"
-    ) {
-      await saveVerifiedIntegrationsScope(requestSessionGeneration, {
-        apiBase: requestApiBase,
-        userId: verifiedUser.userId,
-        spaceId: requestSpaceId || verifiedUser.spaceId,
-        selectionId: requestSpaceId ?? null,
-      });
     }
     return displayIdentityResult(proc.split("/"), parsed.json, identityLabels()) as T;
   } catch (error) {
-    if (
-      requestSessionGeneration === currentSessionGeneration() &&
-      requestApiBase === currentApiBase() &&
-      isServerUnreachable(error)
-    )
+    if (requestApiBase === currentApiBase() && isServerUnreachable(error))
       noteServerReachable(false);
     throw error;
   } finally {
@@ -1030,17 +572,13 @@ export type MobileBotSection = BotSection;
 export type MobileMe = Pick<
   Me,
   | "userId"
-  | "name"
-  | "email"
   | "spaceId"
   | "defaultProvider"
   | "defaultModel"
   | "hostCredentialProvider"
   | "hostCredentialSource"
   | "needsModel"
-  | "isDeploymentOwner"
-  | "needsSignupSurvey"
-> & { billingEnabled?: boolean };
+>;
 
 export type MobileModel = ModelCatalogEntry;
 
@@ -1242,9 +780,7 @@ export async function subscribeThread(
   signal: AbortSignal,
 ) {
   const context = await captureApiRequestContext();
-  const current = () =>
-    context.apiBase === currentApiBase() &&
-    context.sessionGeneration === currentSessionGeneration();
+  const current = () => context.apiBase === currentApiBase();
   const res = await fetch(`${context.apiBase}/rpc/threads/subscribe`, {
     method: "POST",
     headers: {
@@ -1594,40 +1130,3 @@ export {
   probeApiBase,
   usesCustomApiBase,
 } from "./endpoint";
-export { loadSessionToken };
-
-export async function fetchAccountSecurity(): Promise<AccountSecurity> {
-  const { response, body } = await fetchMobileJson<unknown>(
-    `${currentApiBase()}/api/auth/account-security`,
-    { headers: { origin: "rakazo://", ...(await authHeaders()) } },
-    null,
-  );
-  // Older servers support password accounts and the original change/delete endpoints.
-  if (response.status === 404) return legacyAccountSecurity;
-  if (!response.ok) throw new Error(t("Could not load sign-in options"));
-  try {
-    return accountSecuritySchema.parse(body);
-  } catch {
-    throw new Error(t("Could not load sign-in options"));
-  }
-}
-
-export async function requestAccountDeletionCode(): Promise<void> {
-  const { response, body, invalidJson } = await fetchMobileJson<unknown>(
-    `${currentApiBase()}/api/auth/request-account-deletion`,
-    {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        origin: "rakazo://",
-        ...(await authHeaders()),
-      },
-      body: "{}",
-    },
-    null,
-  );
-  if (!response.ok)
-    throw new Error(
-      authResponseErrorText(response.status, body, invalidJson, t("Could not continue")),
-    );
-}

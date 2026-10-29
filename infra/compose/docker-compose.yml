@@ -328,38 +328,19 @@ services:
       <<: *app-environment
       # Owner login for migrations; the start command drops it before serving.
       DATABASE_MIGRATION_URL: postgres://${POSTGRES_USER:-rakazo}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-rakazo}
-      # Sign-in, sessions, billing and inbound webhooks: API only.
+      # Inbound webhooks are API only.
       API_HOST: "0.0.0.0"
       API_PORT:
-      BETTER_AUTH_SECRET:
-      BETTER_AUTH_URL:
       WEB_ORIGIN:
-      AUTH_PASSWORD_ENABLED: ${AUTH_PASSWORD_ENABLED:-true}
-      AUTH_BREACHED_PASSWORD_CHECK_ENABLED: ${AUTH_BREACHED_PASSWORD_CHECK_ENABLED:-false}
-      PASSKEY_APPLE_APP_IDS:
-      PASSKEY_ANDROID_CERT_SHA256:
       # Proxies whose X-Forwarded-For is believed. Unset trusts this stack's own networks: the web
       # proxy and a reverse proxy on the host. See docs/self-host.md#client-addresses.
       TRUSTED_PROXIES:
       CLIENT_IP_HEADER:
-      OIDC_ISSUER: ${OIDC_ISSUER:-}
-      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
-      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
-      OIDC_NAME: ${OIDC_NAME:-SSO}
-      OIDC_SCOPES: ${OIDC_SCOPES:-openid email profile}
-      OIDC_ALLOW_SIGNUP_BYPASS: ${OIDC_ALLOW_SIGNUP_BYPASS:-false}
-      SIGNUPS_ENABLED:
-      SIGNUP_ALLOWLIST:
       SCREEN_PROXY_SECRET: ${SCREEN_PROXY_SECRET:?Set SCREEN_PROXY_SECRET in .env}
       RAKAZO_DESKTOP_STACK_TOKEN:
       RAKAZO_GIT_SHA:
       SENTRY_BROWSER_DSN: ${SENTRY_BROWSER_DSN:-}
       PRIVACY_POLICY_URL:
-      SMTP_URL:
-      EMAIL_FROM:
-      STRIPE_SECRET_KEY:
-      STRIPE_WEBHOOK_SECRET:
-      STRIPE_PRICE_ID:
       INTEGRATIONS_CATALOG_URL:
       TEAM_CHAT_BOT_ID:
       SLACK_RAKAZO_BOT_ID:

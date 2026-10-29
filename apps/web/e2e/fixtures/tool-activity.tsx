@@ -109,8 +109,9 @@ function SettingsFixture() {
   return (
     <main className="min-h-screen bg-background text-foreground">
       <SettingsOverlay
-        email="owner@example.test"
-        name="Owner"
+        timezone={null}
+        onTimezoneChange={async () => {}}
+        onUsageOpen={() => {}}
         memoryConfig={null}
         onMemoryConfigChange={() => {}}
         onClose={() => {}}

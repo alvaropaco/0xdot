@@ -10,9 +10,7 @@ export async function loadArchivedChats(
   groups: MobileGroup[] | null;
   error: unknown;
 }> {
-  const options = requestContext
-    ? { signal, requestContext, skipSpaceAuthRecovery: true }
-    : { signal };
+  const options = requestContext ? { signal, requestContext } : { signal };
   const [bots, groups] = await Promise.allSettled([
     rpc<MobileBot[]>("bots/listArchived", {}, options),
     rpc<MobileGroup[]>("groups/listArchived", {}, options),

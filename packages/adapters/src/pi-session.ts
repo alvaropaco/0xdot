@@ -54,17 +54,6 @@ export async function removePiBotSessions(
   });
 }
 
-export async function removePiUserSessions(
-  dataDir: string | undefined,
-  userId: string,
-): Promise<void> {
-  if (!dataDir) return;
-  await rm(piSessionUserRoot(piSessionsRoot(dataDir), userId), {
-    recursive: true,
-    force: true,
-  });
-}
-
 export interface PiSessionRetentionOptions {
   now?: number;
   maxAgeMs?: number;

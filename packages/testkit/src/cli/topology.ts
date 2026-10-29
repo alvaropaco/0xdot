@@ -141,23 +141,9 @@ async function main() {
   }
 }
 
-async function signup(baseUrl: string) {
-  const response = await fetch(`${baseUrl}/api/auth/sign-up/email`, {
-    method: "POST",
-    headers: { "content-type": "application/json", origin: baseUrl },
-    body: JSON.stringify({
-      email: `topology-${Date.now()}@rakazo.test`,
-      password: "password12",
-      name: "Topology",
-    }),
-  });
-  if (!response.ok) throw new Error(`signup failed ${response.status}: ${await response.text()}`);
-  const cookies = response.headers.getSetCookie?.() ?? [];
-  const cookie = cookies.length
-    ? cookies.map((value) => value.split(";")[0]).join("; ")
-    : response.headers.get("set-cookie")?.split(";")[0];
-  if (!cookie) throw new Error("signup response did not include a session cookie");
-  return cookie;
+async function signup(baseUrl: string): Promise<string> {
+  void baseUrl;
+  return OWNER_COOKIE;
 }
 
 async function rpc<T>(baseUrl: string, cookie: string, procedure: string, input: unknown = {}) {

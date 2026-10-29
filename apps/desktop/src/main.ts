@@ -298,7 +298,7 @@ function createWindow(url: string, partition: string | null) {
   // The popup has no address bar, so a loopback redirect would otherwise strand
   // the user on a blank window holding the authorization code in a URL they
   // cannot read. Capture it here and hand it to the app instead.
-  win.webContents.on("did-create-window", (popup, { frameName }) => {
+  win.webContents.on("did-create-window", (popup) => {
     const capture = (details: {
       preventDefault: () => void;
       url: string;
@@ -307,7 +307,6 @@ function createWindow(url: string, partition: string | null) {
       // will-redirect can fire for iframes; only the top-level callback counts.
       if (details.isMainFrame === false) return;
       const callback = oauthCallbackFrom(details.url, {
-        frameName,
         excludeOrigins: appOrigin !== null ? [appOrigin] : [],
       });
       if (!callback) return;

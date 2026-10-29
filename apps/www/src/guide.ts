@@ -94,7 +94,7 @@ export const SELF_HOST_FAQS: readonly FaqItem[] = [
 ];
 
 export const OPENCLAW_SETUP_PARAGRAPHS = [
-  "Rakazo's self-host path is the published Docker installer, or the desktop app starting that stack on this computer. You create an account and connect a model. From there it is just chat, on the web, desktop, and mobile apps. A new bot interviews you about the work, and you manage the bot from that chat. Routines are readable Markdown.",
+  "Rakazo's self-host path is the published Docker installer, or the desktop app starting that stack on this computer. You connect a model and start chatting. From there it is just chat, on the web, desktop, and mobile apps. A new bot interviews you about the work, and you manage the bot from that chat. Routines are readable Markdown.",
   "OpenClaw's getting-started guide installs the CLI, then runs a wizard. Quick start is the short path when a Claude Code or Codex login, or an API key, is already on the machine. Custom setup walks through the full flow, and `openclaw onboard --classic` is the step-by-step wizard. Quick start leaves the Gateway in that terminal until you stop it, so you can chat before installing a service. `openclaw gateway install` is the later step that keeps it in the background: a LaunchAgent on macOS, a systemd user unit on Linux, or a Scheduled Task on Windows. You check `openclaw gateway status` (the guide says port 18789) and open `openclaw dashboard`. Messaging from a phone, such as Telegram, is a separate Channels step.",
 ] as const;
 
@@ -294,7 +294,7 @@ ${PUBLISHED_IMAGES_INSTALL}
 
 The installer downloads the Compose file and \`.env.images.example\`, creates \`.env\` with random secrets, and starts Rakazo. It keeps an existing \`.env\` when you run it again. The default image tag is \`edge\` (builds from the main branch, \`linux/amd64\` and \`linux/arm64\`).
 
-Open [http://127.0.0.1:5173](http://127.0.0.1:5173) and create an account. The first registered user becomes the deployment owner. Connect a model in the app, or set \`OPENROUTER_API_KEY\` before startup. Local Docker computers are on by default.
+Open [http://127.0.0.1:5173](http://127.0.0.1:5173) and you are in. Connect a model in the app, or set \`OPENROUTER_API_KEY\` before startup. Local Docker computers are on by default.
 
 For an agent-assisted install, use the [setup prompt](${SETUP_PROMPT_URL}).
 
@@ -306,13 +306,13 @@ Use the same installer on a VPS when bots should stay running. Images Compose bi
 ${PUBLISHED_IMAGES_SERVER}
 \`\`\`
 
-Before the second command, set \`RAKAZO_HOST\` to the hostname and set \`BETTER_AUTH_URL\`, \`WEB_ORIGIN\`, and \`API_URL\` to that same \`https://\` origin. For a remote computer instead of local Docker, set \`SANDBOX_PROVIDER\` to \`e2b\`, \`daytona\`, \`createos\`, or \`boat\` and add that provider's API key.
+Before the second command, set \`RAKAZO_HOST\` to the hostname and set \`WEB_ORIGIN\` and \`API_URL\` to that same \`https://\` origin. For a remote computer instead of local Docker, set \`SANDBOX_PROVIDER\` to \`e2b\`, \`daytona\`, \`createos\`, or \`boat\` and add that provider's API key.
 
 \`\`\`Caddyfile
 ${CADDY_SNIPPET}
 \`\`\`
 
-Replace \`app.example.com\` with your host. Desktop clients should use **Existing instance** with the \`https://\` address. The [public single-VM section](${DOCS_URL}#public-single-vm-deployment) covers production Compose, host hardening, signup allowlists, and SMTP.
+Replace \`app.example.com\` with your host. Desktop clients should use **Existing instance** with the \`https://\` address. The [public single-VM section](${DOCS_URL}#public-single-vm-deployment) covers production Compose and host hardening.
 
 If downloads are blocked, use the [restricted-network guide](${SELF_HOST_RESTRICTED_URL}). Secret names and recovery are in the [secrets checklist](${SELF_HOST_SECRETS_URL}).
 
@@ -322,7 +322,7 @@ If downloads are blocked, use the [restricted-network guide](${SELF_HOST_RESTRIC
 ${SOURCE_CHECKOUT}
 \`\`\`
 
-Set \`POSTGRES_PASSWORD\` and \`POSTGRES_APP_PASSWORD\` to two URI-safe random values (for example \`openssl rand -hex 16\`) and put them in \`DATABASE_MIGRATION_URL\` and \`DATABASE_URL\`. Set \`BETTER_AUTH_SECRET\`, \`ENCRYPTION_KEY\`, and \`SCREEN_PROXY_SECRET\` to independent long random values. Docker sandboxes also need a dedicated \`SANDBOX_SUPERVISOR_TOKEN\`. Keep these in \`.env\`, not in git.
+Set \`POSTGRES_PASSWORD\` and \`POSTGRES_APP_PASSWORD\` to two URI-safe random values (for example \`openssl rand -hex 16\`) and put them in \`DATABASE_MIGRATION_URL\` and \`DATABASE_URL\`. Set \`ENCRYPTION_KEY\` and \`SCREEN_PROXY_SECRET\` to independent long random values. Docker sandboxes also need a dedicated \`SANDBOX_SUPERVISOR_TOKEN\`. Keep these in \`.env\`, not in git.
 
 For host-side development with Docker Desktop, set \`SANDBOX_CONTROL_VIA_LOOPBACK=true\` in \`.env\`. The supervisor then publishes its control service on a loopback port, because Docker Desktop container addresses are not reachable from the host. Leave this unset when the supervisor runs inside Compose.
 
@@ -338,7 +338,7 @@ With a server already running, the Electron app's **Existing instance** option t
 
 ${RUN_ON_YOUR_MAC}
 
-In the mobile app, tap **Use a custom server** on the sign-in screen and enter the same HTTPS origin as \`WEB_ORIGIN\`.
+In the mobile app, open **Settings → Server** and enter the same HTTPS origin as \`WEB_ORIGIN\`.
 
 ## Full reference
 

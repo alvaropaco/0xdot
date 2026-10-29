@@ -7,7 +7,6 @@ import {
   expectCardWidth,
   realSandboxTimeout,
   rpc,
-  showPasswordForm,
   signup,
 } from "./helpers";
 
@@ -19,21 +18,14 @@ function sidebarBotButton(page: Page, name: RegExp | string) {
 
 test.describe.configure({ mode: "serial" });
 
-test("two users are isolated and a bot completes durable work", async ({ browser }, testInfo) => {
+test("a bot completes durable work that survives a reload", async ({ browser }, testInfo) => {
   const a = await browser.newContext();
-  const b = await browser.newContext();
   const pageA = await a.newPage();
-  const pageB = await b.newPage();
 
   const stamp = Date.now();
   await signup(pageA, `ada-${stamp}@rakazo.test`, "password12", "Ada", testInfo);
   await completeOnboarding(pageA, testInfo);
   await expect(pageA.getByText("Chief").first()).toBeVisible();
-
-  await signup(pageB, `bob-${stamp}@rakazo.test`, "password12", "Bob");
-  await completeOnboarding(pageB);
-  await expect(pageB.getByText("Chief").first()).toBeVisible();
-  await expect(pageB.getByText("Ada", { exact: true })).toHaveCount(0);
 
   const composer = pageA.getByPlaceholder(/Message/);
   await composer.fill("write a file in your home called notes/result.txt that says isolation-ok");
@@ -49,7 +41,6 @@ test("two users are isolated and a bot completes durable work", async ({ browser
   await captureScreenshot(pageA, testInfo, "07-durable-bot-work");
 
   await a.close();
-  await b.close();
 });
 
 test("takeover, routine, plugins, and export are reachable", async ({ page }, testInfo) => {
@@ -386,7 +377,7 @@ test("takeover, routine, plugins, and export are reachable", async ({ page }, te
   await captureScreenshot(page, testInfo, "12-bot-settings");
 });
 
-test("sign-in, spawn, and stop work in the shell", async ({ page }, testInfo) => {
+test("spawn, stop, and reload restore the shell", async ({ page }, testInfo) => {
   const browserErrors: string[] = [];
   const failedRequests: string[] = [];
   page.on("pageerror", (error) => browserErrors.push(error.message));
@@ -479,13 +470,8 @@ test("sign-in, spawn, and stop work in the shell", async ({ page }, testInfo) =>
   });
   await expect(page.getByRole("button", { name: "Send", exact: true })).toBeVisible();
 
-  await page.context().clearCookies();
-  await page.goto("/sign-in");
-  await page.getByPlaceholder("Your email address").fill(email);
-  await showPasswordForm(page);
-  await page.getByPlaceholder("Password").fill("password12");
-  await page.getByRole("button", { name: "Continue with email" }).click();
-  await page.waitForURL(/\/app/, { timeout: 20_000 });
+  // The same owner's shell comes back with its roster after a reload.
+  await page.reload();
   await expect(sidebarBotButton(page, /^Chief/)).toBeVisible();
   await expect(sidebarBotButton(page, /Scout/)).toBeVisible();
   await captureScreenshot(page, testInfo, "15-restored-session");

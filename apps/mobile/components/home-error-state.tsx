@@ -7,7 +7,6 @@ import { NativeSymbol } from "./native-symbol";
 
 const SYMBOLS = {
   offline: { ios: "wifi.slash", android: "cloud-offline-outline" },
-  session: { ios: "person.crop.circle.badge.exclamationmark", android: "person-circle-outline" },
   server: { ios: "exclamationmark.icloud", android: "cloud-outline" },
   other: { ios: "exclamationmark.circle", android: "alert-circle-outline" },
 } as const;
@@ -18,7 +17,6 @@ export function HomeErrorState({
   message,
   loading,
   onRetry,
-  onSignIn,
 }: {
   kind: LoadFailureKind;
   /** Shown under the title only when the cause is unknown. */
@@ -26,7 +24,6 @@ export function HomeErrorState({
   /** A retry is in flight: the failure stays, with a spinner in place of the action. */
   loading: boolean;
   onRetry: () => void;
-  onSignIn: () => void;
 }) {
   const { t } = useI18n();
   const styles = useThemedStyles(createStyles);
@@ -35,11 +32,9 @@ export function HomeErrorState({
   const title =
     kind === "offline"
       ? t("Could not reach the server")
-      : kind === "session"
-        ? t("Your session expired")
-        : kind === "server"
-          ? t("The server had a problem")
-          : t("Could not load chats");
+      : kind === "server"
+        ? t("The server had a problem")
+        : t("Could not load chats");
   const detail = kind === "other" && message !== title ? message : null;
   return (
     <View accessibilityRole="alert" style={styles.container}>
@@ -51,10 +46,6 @@ export function HomeErrorState({
       {loading ? (
         <View style={styles.action}>
           <ActivityIndicator color={native.secondaryLabel} />
-        </View>
-      ) : kind === "session" ? (
-        <View style={styles.action}>
-          <NativeActionButton label={t("Sign in")} fill={false} onPress={onSignIn} />
         </View>
       ) : kind !== "server" ? (
         // A server fault is not fixed by retrying right away; pull to refresh still reloads.

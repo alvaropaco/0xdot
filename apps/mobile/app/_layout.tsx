@@ -34,18 +34,8 @@ import { MessageMenuHost } from "../components/message-action-menu";
 import { MessageActionSheetHost } from "../components/message-action-sheet-host";
 import { NativeSymbol } from "../components/native-symbol";
 import { VoicePlayerBar } from "../components/voice-player-bar";
-import {
-  currentApiBase,
-  loadApiBase,
-  loadSessionToken,
-  rpc,
-  selectedSpaceId,
-  subscribeApiBase,
-  subscribeSessionRejected,
-} from "../lib/api";
-import { clearAppBadge } from "../lib/app-badge";
+import { currentApiBase, loadApiBase, rpc, selectedSpaceId, subscribeApiBase } from "../lib/api";
 import { loadAppearancePreference, mobileTokens } from "../lib/appearance";
-import { replaceWithSignIn } from "../lib/auth-routing";
 import { AvatarScreenFocus } from "../lib/avatar-life";
 import { installClientUpdates, watchForegroundUpdates } from "../lib/client-update";
 import { bootstrapI18n, useI18n } from "../lib/i18n";
@@ -63,8 +53,6 @@ import {
   subscribeRemoteImages,
 } from "../lib/remote-images-preference";
 import { loadResponseStreamingPreference } from "../lib/response-streaming";
-import { clearSavedChats } from "../lib/saved-chats";
-import { registerSessionDiskCache } from "../lib/session";
 import {
   chooseInboxWidth,
   closesSplitPane,
@@ -85,15 +73,13 @@ import { InboxPane } from "./index";
 // Before anything renders: text grows with the iOS text size only up to a fixed maximum.
 capTextScaling();
 configureForegroundNotifications();
-registerSessionDiskCache(clearSavedChats);
 installClientUpdates();
-registerSessionDiskCache(() => void clearAppBadge());
 // Keep the splash up until the saved appearance applies, so the first frame isn't in the OS scheme.
 void SplashScreen.preventAutoHideAsync().catch(() => undefined);
 
 // Screens that take the whole window even when it is wide enough for the chat list beside them.
 const DIVIDER_GRAB_WIDTH = 24;
-const FULL_WINDOW_ROUTES = new Set(["/sign-in", "/server", "/image", "/computer"]);
+const FULL_WINDOW_ROUTES = new Set(["/server", "/image", "/computer"]);
 
 /** On a wide window the chat list stays on the left and the stack shows the open chat beside it. */
 function SplitFrame({ children }: { children: ReactNode }) {
@@ -245,20 +231,7 @@ function LayoutContent() {
   const screen = analyticsScreen(usePathname());
   useEffect(() => {
     if (!ready || !screen || (Platform.OS !== "ios" && Platform.OS !== "android")) return;
-    let active = true;
-    void loadSessionToken()
-      .then((token) => {
-        if (active && token)
-          return rpc(
-            "analytics/screen",
-            { screen, surface: Platform.OS },
-            { skipSpaceAuthRecovery: true },
-          );
-      })
-      .catch(() => undefined);
-    return () => {
-      active = false;
-    };
+    void rpc("analytics/screen", { screen, surface: Platform.OS }).catch(() => undefined);
   }, [ready, screen]);
   const [appearanceReady, setAppearanceReady] = useState(false);
   const resolved = useResolvedAppearance();
@@ -293,12 +266,6 @@ function LayoutContent() {
 
   useEffect(() => {
     if (!ready) return;
-    // A session revoked or expired on the server ends here, from whichever screen noticed it.
-    return subscribeSessionRejected(() => replaceWithSignIn());
-  }, [ready]);
-
-  useEffect(() => {
-    if (!ready) return;
     return startUnsentSends();
   }, [ready]);
 
@@ -318,11 +285,9 @@ function LayoutContent() {
       ])
         .then(() => {
           // Notification restoration must not keep the native splash visible.
-          void loadSessionToken()
-            .then((token) =>
-              resumeLiveNotifications(currentApiBase(), token, selectedSpaceId() ?? ""),
-            )
-            .catch(() => undefined);
+          void resumeLiveNotifications(currentApiBase(), selectedSpaceId() ?? "").catch(
+            () => undefined,
+          );
         })
         .catch(() => undefined),
       trackMobileStartup("language", bootstrapI18n()).catch(() => undefined),
@@ -362,7 +327,6 @@ function LayoutContent() {
                         sheetExpandsWhenScrolledToEdge: false,
                       }}
                     />
-                    <Stack.Screen name="sign-in" options={{ headerShown: false }} />
                     <Stack.Screen
                       name="(settings)"
                       options={{

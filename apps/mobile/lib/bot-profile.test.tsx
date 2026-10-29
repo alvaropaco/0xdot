@@ -26,7 +26,6 @@ const { rpc, push, alert, afterChatNotifyChange, listSpaceArtifacts, params, col
 vi.mock("./api", () => ({
   rpc,
   currentApiBase: () => "https://api.example",
-  loadSessionToken: async () => "token",
   selectedSpaceId: () => "space-a",
 }));
 vi.mock("./live-notifications", () => ({ afterChatNotifyChange }));
@@ -359,9 +358,11 @@ describe("bot profile notifications", () => {
     expect(rpc.mock.calls.filter(([procedure]) => procedure === "bots/update")).toHaveLength(1);
     expect(afterChatNotifyChange).toHaveBeenCalledExactlyOnceWith(
       "https://api.example",
-      "token",
       "space-a",
-      { threadId: "thread-fixture", notify: true },
+      {
+        threadId: "thread-fixture",
+        notify: true,
+      },
     );
   });
 
@@ -477,7 +478,6 @@ describe("bot profile notifications", () => {
       await act(async () => notificationsSwitch()!.click());
       expect(afterChatNotifyChange).toHaveBeenCalledExactlyOnceWith(
         "https://api.example",
-        "token",
         "space-a",
         { threadId: "thread-fixture", notify },
       );

@@ -21,7 +21,6 @@ import type {
 import { ATTACHMENT_MAX_COUNT, attachmentMaxBytes, attachmentSizeLabel } from "@rakazo/contracts";
 import type { ComposerMention, ReadBoundary } from "@rakazo/core";
 import {
-  accountDisplay,
   answerableAskMessageIds,
   anySignal,
   attachmentsForThread,
@@ -94,13 +93,11 @@ import { CallCard, CallReturnBar } from "../components/call/CallCard";
 import { IncomingCall } from "../components/call/IncomingCall";
 import { lazyOverlay } from "../components/ErrorBoundary";
 import { IconTooltip } from "../components/IconTooltip";
-import { PasskeyOffer } from "../components/PasskeyOffer";
 import { SidebarFooter } from "../components/SidebarFooter";
 import type { ActivityListFilters } from "../lib/activity-list-filters";
 import { emptyActivityFilters } from "../lib/activity-list-filters";
 import { readActivityMode, writeActivityMode } from "../lib/activity-mode";
 import type { ArtifactTarget } from "../lib/artifact-open";
-import { authClient } from "../lib/auth";
 import { autoReadStillWanted } from "../lib/auto-read";
 import {
   discardPrimedBootstrap,
@@ -160,9 +157,8 @@ import {
   rightPanelStorageKey,
   writeRightPanelState,
 } from "../lib/right-panel-state";
-import { clearSpaceSelection, createSpaceRpc, selectedSpaceId, selectSpace } from "../lib/rpc";
+import { createSpaceRpc, selectedSpaceId, selectSpace } from "../lib/rpc";
 import { readSeenRunErrorIds, rememberSeenRunErrorId } from "../lib/run-error-storage";
-import { useSignOut } from "../lib/sign-out";
 import {
   guardShellNavigate,
   markShellReady,
@@ -329,8 +325,8 @@ function SpaceShell() {
       ),
     [navigate],
   );
-  const session = authClient.useSession();
-  const userId = session.data?.user.id;
+  const [bootstrapMe, setBootstrapMe] = useState<Me | null>();
+  const userId = bootstrapMe?.userId ?? null;
   const [groups, setGroups] = useState<Group[]>([]);
   const [bots, setBots] = useState<Bot[]>([]);
   const botsRef = useRef(bots);
@@ -384,11 +380,6 @@ function SpaceShell() {
   }, [sending, pendingAttachments.length]);
   const sendingRef = useRef(false);
   const [sendError, setSendError] = useState<string | null>(null);
-  const [logOutError, setLogOutError] = useState<string | null>(null);
-  const { signingOut, logOut } = useSignOut(() => {
-    clearSpaceSelection();
-    navigate("/");
-  }, setLogOutError);
   const [attachmentNotice, setAttachmentNotice] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [modelFocusRequest, setModelFocusRequest] = useState(0);
@@ -600,7 +591,6 @@ function SpaceShell() {
   const bootsInFlight = useRef(new Map<string, symbol>());
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [initialBotsLoaded, setInitialBotsLoaded] = useState(false);
-  const [bootstrapMe, setBootstrapMe] = useState<Me | null>();
   const callsEnabledRef = useRef(false);
   useEffect(() => {
     callsEnabledRef.current = bootstrapMe?.phoneCallsEnabled === true;
@@ -710,7 +700,6 @@ function SpaceShell() {
     };
   }, [computerOpen]);
   useEffect(() => {
-    if (!session.data?.user) return;
     let cancelled = false;
     void rpc.messaging
       .status()
@@ -724,7 +713,7 @@ function SpaceShell() {
     return () => {
       cancelled = true;
     };
-  }, [session.data?.user]);
+  }, []);
   const [usage, setUsage] = useState<{
     inputTokens: number | null;
     outputTokens: number | null;
@@ -1972,7 +1961,7 @@ function SpaceShell() {
   const currentRuns = activeThreadRuns(activeSnapshot);
   const answerableAskIds = useMemo(() => answerableAskMessageIds(activeSnapshot), [activeSnapshot]);
   const dismissableAskIds = useMemo(
-    () => dismissableAskMessageIds(activeSnapshot, userId),
+    () => dismissableAskMessageIds(activeSnapshot, userId ?? undefined),
     [activeSnapshot, userId],
   );
   const workingRuns = currentRuns.filter((run) => isRunWorking(run.status));
@@ -2983,8 +2972,6 @@ function SpaceShell() {
     !computerScreenError &&
     showComputerRecoveryHint;
 
-  const { label: userName, initial: initials } = accountDisplay(session.data?.user ?? {}, t`You`);
-
   const botMenuContent = contextChat ? (
     <BotContextMenu
       bot={contextChat}
@@ -3328,21 +3315,11 @@ function SpaceShell() {
             />
           </div>
         </div>
-        <div className={miniSidebar ? "hidden" : "contents"}>
-          <PasskeyOffer />
-        </div>
         <SidebarFooter
           mini={miniSidebar}
           logos={footerLogos}
-          name={userName}
-          initials={initials}
-          image={session.data?.user.image}
-          email={session.data?.user.email}
           open={menuOpen}
-          onOpenChange={(open) => {
-            setMenuOpen(open);
-            if (!open) setLogOutError(null);
-          }}
+          onOpenChange={setMenuOpen}
           onIntegrations={() => {
             setMenuOpen(false);
             setOverlay({ kind: "integrations" });
@@ -3369,12 +3346,6 @@ function SpaceShell() {
             setMenuOpen(false);
             openSettings("usage");
           }}
-          onLogOut={() => {
-            setLogOutError(null);
-            void logOut();
-          }}
-          signingOut={signingOut}
-          logOutError={logOutError}
         />
       </Sidebar>
 
@@ -4061,16 +4032,10 @@ function SpaceShell() {
             spaces={spaces}
             currentSpaceId={currentSpaceId}
             onSpaceChange={(spaceId) => setOverlay({ ...overlay, spaceId })}
-            name={session.data?.user.name ?? ""}
-            onNameSaved={async () => {
-              await session.refetch({ query: { disableCookieCache: true } });
-            }}
-            email={session.data?.user.email}
             usage={usage}
             onUsageOpen={refreshUsage}
             section={overlay.section}
             onSectionChange={(section) => setOverlay({ ...overlay, section })}
-            billingEnabled={bootstrapMe?.billingEnabled === true}
             sandboxProvider={bootstrapMe?.sandboxProvider}
             onSandboxProviderChange={(sandboxProvider) =>
               setBootstrapMe((prev) => (prev ? { ...prev, sandboxProvider } : prev))

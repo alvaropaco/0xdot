@@ -1,15 +1,8 @@
 vi.mock("./ai-consent", () => ({ promptAiConsent: vi.fn() }));
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  currentApiBase,
-  resetApiBase,
-  saveApiBase,
-  subscribeApiBase,
-  subscribeSessionRejected,
-} from "./api";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { currentApiBase, resetApiBase, saveApiBase, subscribeApiBase } from "./api";
 import { loadLinkFavicon } from "./link-favicons";
-import { restoreSessionToken } from "./session";
 
 vi.mock("expo-secure-store", () => ({
   getItemAsync: vi.fn(async () => null),
@@ -23,10 +16,6 @@ vi.mock("./live-notifications.js", () => ({
 vi.mock("./network-cache.js", () => ({ clearNetworkCache: vi.fn() }));
 
 describe("link favicons on mobile", () => {
-  beforeEach(async () => {
-    await restoreSessionToken("session-token");
-  });
-
   afterEach(() => {
     vi.unstubAllGlobals();
   });
@@ -81,13 +70,9 @@ describe("link favicons on mobile", () => {
   ])("fails quietly on an older server that answers %s", async (_name, body) => {
     const fetchMock = vi.fn(async () => new Response(body, { status: 404 }));
     vi.stubGlobal("fetch", fetchMock);
-    const rejected = vi.fn();
-    const unsubscribe = subscribeSessionRejected(rejected);
 
     // The renderer turns the rejection into the globe and remembers it for the session.
     await expect(loadLinkFavicon("https://x.com")).rejects.toBeInstanceOf(Error);
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(rejected).not.toHaveBeenCalled();
-    unsubscribe();
   });
 });

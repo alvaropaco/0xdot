@@ -90,7 +90,6 @@ import {
   modelCredentialAuthKindsForSpace,
   modelCredentialDto,
   normalizeSecretDestination,
-  PushSessionEndedError,
   parseModelSecret,
   parseRoutineWatch,
   parseRoutineWatchState,
@@ -144,7 +143,6 @@ import {
   verifyMcpInstall,
   verifyOpenAiCompatibleApiKey,
 } from "@rakazo/adapters";
-import type { Auth } from "@rakazo/auth";
 import type {
   ActionApprovalRule,
   Actor,
@@ -173,7 +171,6 @@ import {
   mcpOAuthEnvReferences,
   OPENAI_COMPATIBLE_PROVIDER_ID,
   parseTicketRef,
-  signupSurveyAsksTeamSize,
   storedPiProviderIds,
   usableModelId,
 } from "@rakazo/contracts";
@@ -241,7 +238,6 @@ import {
   newestVoiceCredentialOrder,
   Prisma,
   parseComputerMode,
-  pushSessionExpiresAt,
   recordSecurityEvent,
   releaseSpaceDeletionClaim,
   renameSpaceForMember,
@@ -276,7 +272,6 @@ import {
   listArtifactVersions,
   listSpaceArtifacts,
 } from "./artifacts.js";
-import type { BillingService } from "./billing.js";
 import {
   executionBlocksUserTakeover,
   resolveBusyBotName,
@@ -351,8 +346,6 @@ const COMPUTER_COMMAND_HISTORY_EVENTS = 200;
 const THREAD_MESSAGE_PAGE_SIZE = 100;
 /** Silence longer than this on a thread stream is indistinguishable from a dead socket. */
 export const HEARTBEAT_MS = 20_000;
-/** A thread stream re-checks its session at least this often while it delivers. */
-export const SESSION_RECHECK_MS = 10_000;
 const EXPORT_MESSAGE_PAGE_SIZE = 500;
 
 async function reconcileConnections(
@@ -661,7 +654,6 @@ export interface RouterDeps {
   events: ThreadEvents;
   boardEvents: BoardEvents;
   ticketChanges: TicketChangeNotifier;
-  auth: Auth;
   jobs: JobPublisher;
   sandbox: SandboxProvider;
   memory: MemoryStore;
@@ -702,8 +694,6 @@ export interface RouterDeps {
   dataDir: string;
   /** Present when the external messaging surface is enabled. */
   messaging?: { enabled: boolean; providers: string[]; openSignup: boolean };
-  /** Present only when the deployment bills; self-hosted installs leave it unset. */
-  billing?: BillingService;
   env: {
     ticketBoardEnabled?: boolean;
     phoneCallsEnabled?: boolean;
@@ -965,11 +955,7 @@ async function asMemberOf<T>(
 export function createRouter(deps: RouterDeps) {
   const os = implement(appContract).$context<{
     actor: Actor | null;
-    /** The signed-in session, so a push token ends with the session that registered it. */
-    sessionId?: string;
     signal?: AbortSignal;
-    /** Re-runs the request's auth so a long-lived stream notices sign-out and revocation. */
-    stillAuthorized?: () => Promise<boolean>;
   }>();
   const repos = createRepos(deps.prisma, {
     phoneCallsEnabled: deps.env?.phoneCallsEnabled,
@@ -1048,12 +1034,7 @@ export function createRouter(deps: RouterDeps) {
     ((scope: { userId: string; spaceId: string }, secretId: string, provider: string) =>
       kickModelCredentialRefresh(deps.prisma, deps.secrets, scope, secretId, provider));
   const catalogForSpace = async (actor: Actor) => {
-    const auth = await modelCredentialAuthKindsForSpace(
-      deps.prisma,
-      deps.secrets,
-      actor,
-      deps.billing?.modelCreditsEnabled ? deps.env.defaultProvider : undefined,
-    );
+    const auth = await modelCredentialAuthKindsForSpace(deps.prisma, deps.secrets, actor);
     const available = listAvailablePiCatalog(auth.byProvider, auth.byModel);
     const [live, providerLive] = await Promise.all([
       codexLiveCatalogsForSpace(deps.prisma, deps.secrets, actor, auth, codexCatalog, {
@@ -1074,19 +1055,7 @@ export function createRouter(deps: RouterDeps) {
     const selected = providerLive.size
       ? await savedCatalogSelections(deps.prisma, actor.userId)
       : new Set<string>();
-    return applyProviderLiveCatalog(codexMerged, auth, providerLive, selected).map((entry) =>
-      entry.provider === auth.managedProvider
-        ? {
-            ...entry,
-            managed: true,
-            billing:
-              auth.secretIdByModel[entry.provider]?.[entry.id] ||
-              auth.secretIdByProvider[entry.provider]
-                ? entry.billing
-                : "Uses Rakazo credits",
-          }
-        : entry,
-    );
+    return applyProviderLiveCatalog(codexMerged, auth, providerLive, selected);
   };
   const groupRepos = createGroupRepos(deps.prisma);
   const taughtSkills = createTaughtSkillsService({
@@ -1160,26 +1129,6 @@ export function createRouter(deps: RouterDeps) {
     },
     health: os.health.handler(async () => ({ ok: true as const, version: "0.1.0" })),
     me: authed.me.handler(async ({ context }): Promise<Me> => meDto(deps, context.actor)),
-    billing: {
-      selectFunding: authed.billing.selectFunding.handler(async ({ context, input }) =>
-        requireBilling(deps).selectFunding(context.actor, input.funding),
-      ),
-      purchaseCredits: authed.billing.purchaseCredits.handler(async ({ context, input }) =>
-        requireBilling(deps).purchaseCredits(context.actor, input),
-      ),
-      setMonthlyCredits: authed.billing.setMonthlyCredits.handler(async ({ context, input }) =>
-        requireBilling(deps).setMonthlyCredits(context.actor, input.amountCents),
-      ),
-      status: authed.billing.status.handler(async ({ context }) =>
-        requireBilling(deps).status(context.actor),
-      ),
-      checkout: authed.billing.checkout.handler(async ({ context }) =>
-        requireBilling(deps).checkout(context.actor),
-      ),
-      portal: authed.billing.portal.handler(async ({ context }) =>
-        requireBilling(deps).portal(context.actor),
-      ),
-    },
     preferences: {
       update: authed.preferences.update.handler(async ({ context, input }): Promise<Me> => {
         await deps.prisma.user.update({
@@ -1424,31 +1373,6 @@ export function createRouter(deps: RouterDeps) {
         spaces: navigation.spaces,
       };
     }),
-    // Retain wire compatibility for older clients, but app accounts have no server authority.
-    deployment: {
-      get: authed.deployment.get.handler(() => {
-        throw new ORPCError("FORBIDDEN");
-      }),
-      update: authed.deployment.update.handler(() => {
-        throw new ORPCError("FORBIDDEN");
-      }),
-    },
-    security: {
-      events: authed.security.events.handler(() => {
-        throw new ORPCError("FORBIDDEN");
-      }),
-    },
-    updater: {
-      status: authed.updater.status.handler(() => {
-        throw new ORPCError("FORBIDDEN");
-      }),
-      check: authed.updater.check.handler(() => {
-        throw new ORPCError("FORBIDDEN");
-      }),
-      apply: authed.updater.apply.handler(() => {
-        throw new ORPCError("FORBIDDEN");
-      }),
-    },
     models: {
       list: authed.models.list.handler(async ({ context }) => {
         const catalog = await catalogForSpace(context.actor);
@@ -2076,9 +2000,6 @@ export function createRouter(deps: RouterDeps) {
             secretStore: deps.secrets,
             codexCatalog,
             refreshExpiredCredential,
-            hostedProvider: deps.billing?.modelCreditsEnabled
-              ? deps.env.defaultProvider
-              : undefined,
             defaultModel: async () => {
               const me = await meDto(deps, context.actor);
               return { provider: me.defaultProvider, model: me.defaultModel };
@@ -2508,14 +2429,6 @@ export function createRouter(deps: RouterDeps) {
         // A half-open stream looks identical to an idle one, so punctuate silence:
         // the client treats any frame as liveness and reconnects once they stop.
         let pending: Promise<IteratorResult<ProductEvent>> | undefined;
-        // Auth ran once when the stream opened. Re-check before delivering more, so a signed-out
-        // or revoked session stops within SESSION_RECHECK_MS, or at the next heartbeat when idle.
-        let authorizedAt = Date.now();
-        const assertStillAuthorized = async () => {
-          if (!context.stillAuthorized || Date.now() - authorizedAt < SESSION_RECHECK_MS) return;
-          if (!(await context.stillAuthorized())) throw new ORPCError("UNAUTHORIZED");
-          authorizedAt = Date.now();
-        };
         try {
           while (!context.signal?.aborted) {
             pending ??= follow.next();
@@ -2527,7 +2440,6 @@ export function createRouter(deps: RouterDeps) {
               }),
             ]).finally(() => clearTimeout(timer));
             if (next === "silent") {
-              await assertStillAuthorized();
               // Keep `pending` so the in-flight read stays the next event in order.
               yield {
                 id: "heartbeat",
@@ -2545,8 +2457,6 @@ export function createRouter(deps: RouterDeps) {
             pending = undefined;
             if (next.done) return;
             const event = next.value;
-            // Filtered peer events also restart the heartbeat, so check before skipping them.
-            await assertStillAuthorized();
             if (await isPeerRun(deps.prisma, event.runId, peerRunCache)) {
               if (!shouldForwardPeerThreadEvent(event)) continue;
             } else if (await isBackgroundRun(deps.prisma, event.runId, backgroundRunCache)) {
@@ -4239,12 +4149,6 @@ export function createRouter(deps: RouterDeps) {
         // Board signals are transient, so a heartbeat stands in for liveness and
         // gives the client a periodic catch-up reload if a push was missed.
         let pending: Promise<IteratorResult<BoardEvent>> | undefined;
-        let authorizedAt = Date.now();
-        const assertStillAuthorized = async () => {
-          if (!context.stillAuthorized || Date.now() - authorizedAt < SESSION_RECHECK_MS) return;
-          if (!(await context.stillAuthorized())) throw new ORPCError("UNAUTHORIZED");
-          authorizedAt = Date.now();
-        };
         try {
           while (!context.signal?.aborted) {
             pending ??= follow.next();
@@ -4255,7 +4159,6 @@ export function createRouter(deps: RouterDeps) {
                 timer = setTimeout(() => resolve("silent"), HEARTBEAT_MS);
               }),
             ]).finally(() => clearTimeout(timer));
-            await assertStillAuthorized();
             if (next === "silent") {
               yield { spaceId, createdAt: new Date().toISOString() };
               continue;
@@ -5167,31 +5070,6 @@ export function createRouter(deps: RouterDeps) {
       },
     },
     onboarding: {
-      signupSurvey: authed.onboarding.signupSurvey.handler(async ({ context, input }) => {
-        const answers = {
-          reason: input.reason || null,
-          use: input.use ?? null,
-          teamSize: signupSurveyAsksTeamSize(input.use) ? (input.teamSize ?? null) : null,
-          source: input.source || null,
-        };
-        const saved = await deps.prisma.signupSurvey.upsert({
-          where: { userId: context.actor.userId },
-          create: { userId: context.actor.userId, ...answers },
-          update: answers,
-        });
-        deps.analytics?.capture(
-          context.actor.userId,
-          {
-            name: "signup_survey_answered",
-            skipped: Object.values(answers).every((answer) => answer === null),
-            ...(answers.use ? { use: answers.use } : {}),
-            ...(answers.teamSize ? { teamSize: answers.teamSize } : {}),
-          },
-          // The first save's time keeps a resubmission a duplicate of the same event.
-          { id: context.actor.userId, at: saved.createdAt },
-        );
-        return { ok: true as const };
-      }),
       start: authed.onboarding.start.handler(async ({ context, input }) => {
         await startOnboarding(onboardingDeps, context.actor, input.botId);
         return { ok: true as const };
@@ -6736,19 +6614,7 @@ export function createRouter(deps: RouterDeps) {
     },
     notifications: {
       registerPush: authed.notifications.registerPush.handler(async ({ context, input }) => {
-        const sessionId = context.sessionId;
-        if (!sessionId) throw new ORPCError("UNAUTHORIZED");
-        try {
-          await savePushToken(deps.dataDir, context.actor.userId, input.token, sessionId, {
-            sessionActive: async () => {
-              const expiresAt = await pushSessionExpiresAt(deps.prisma, sessionId);
-              return expiresAt !== null && expiresAt.getTime() > Date.now();
-            },
-          });
-        } catch (error) {
-          if (error instanceof PushSessionEndedError) throw new ORPCError("UNAUTHORIZED");
-          throw error;
-        }
+        await savePushToken(deps.dataDir, context.actor.userId, input.token);
         return { ok: true as const };
       }),
       unregisterPush: authed.notifications.unregisterPush.handler(async ({ context }) => {
@@ -7058,7 +6924,7 @@ async function meDto(deps: RouterDeps, actor: Actor): Promise<Me> {
   const [user, setup] = await Promise.all([
     deps.prisma.user.findUniqueOrThrow({
       where: { id: actor.userId },
-      include: { signupSurvey: { select: { userId: true } } },
+      select: { timezone: true },
     }),
     modelSetup(deps, actor),
   ]);
@@ -7067,10 +6933,7 @@ async function meDto(deps: RouterDeps, actor: Actor): Promise<Me> {
     phoneCallsEnabled: deps.env.phoneCallsEnabled === true,
     maxUploadSizeBytes: attachmentMaxBytes(deps.env),
     userId: actor.userId,
-    email: user.email,
-    name: user.name,
     spaceId: actor.spaceId,
-    isDeploymentOwner: false,
     needsModel: setup.needsModel,
     defaultProvider: canonicalPiProviderId(
       setup.credential?.provider ??
@@ -7092,15 +6955,7 @@ async function meDto(deps: RouterDeps, actor: Actor): Promise<Me> {
     sandboxProvider: deps.env.sandboxProvider,
     avatarStyle: "organic",
     timezone: user.timezone ?? null,
-    billingEnabled: Boolean(deps.billing),
-    // Only billing deployments ask; self-hosted installs never see the survey.
-    needsSignupSurvey: Boolean(deps.billing) && !user.signupSurvey,
   };
-}
-
-function requireBilling(deps: RouterDeps): BillingService {
-  if (!deps.billing) throw new ORPCError("NOT_FOUND", { message: "Billing is not enabled" });
-  return deps.billing;
 }
 
 async function modelSetup(deps: RouterDeps, actor: Actor) {
@@ -7108,10 +6963,7 @@ async function modelSetup(deps: RouterDeps, actor: Actor) {
     findDefaultModelCredential(deps.prisma, actor),
     deps.prisma.deploymentSettings.findUnique({ where: { id: "default" } }),
   ]);
-  const funding = deps.billing ? await deps.billing.status(actor) : null;
-  const hasDeployment =
-    Boolean(deps.env.deploymentModelConfigured) &&
-    (!funding?.creditPurchasesEnabled || funding.funding === "credits");
+  const hasDeployment = Boolean(deps.env.deploymentModelConfigured);
   return {
     credential,
     settings,

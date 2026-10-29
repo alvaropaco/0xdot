@@ -6,7 +6,7 @@ import type { ModelConnectInput, RunStatus } from "@rakazo/contracts";
 import { ACTIVE_RUN_STATUSES, isTerminal } from "@rakazo/core";
 import type { createDb } from "@rakazo/db";
 import { discardBotIntroRun } from "../discard-bot-intro.js";
-import { sessionCookieHeader } from "../index.js";
+import { OWNER_COOKIE } from "../index.js";
 import { asSystem } from "../system-db.js";
 import type { EvalCase, Evidence } from "./cases.js";
 import type { ClarificationBlock } from "./clarification.js";
@@ -152,17 +152,7 @@ export async function runTrial(
     const trial = handles;
     const { app } = trial;
     const setupActor = async () => {
-      const signup = await app.request("/api/auth/sign-up/email", {
-        method: "POST",
-        headers: { "content-type": "application/json", origin: "http://127.0.0.1:5173" },
-        body: JSON.stringify({
-          email: `eval-${randomUUID()}@example.test`,
-          password: "synthetic-eval-password-12",
-          name: "Eval User",
-        }),
-      });
-      if (!signup.ok) throw new EvalFailure("harness", `Fixture signup failed (${signup.status})`);
-      cookie = sessionCookieHeader(signup);
+      cookie = OWNER_COOKIE;
       await rpc(app, cookie, "models/connect", options.connection);
       for (const provider of scenario.connections ?? ["GMAIL", "CRM", "GITHUB"])
         await rpc(app, cookie, "connections/begin", {

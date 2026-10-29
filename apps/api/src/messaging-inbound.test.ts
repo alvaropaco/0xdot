@@ -8,8 +8,6 @@ import {
 import type { MessagingReceipts } from "./messaging-receipts.js";
 import { inboundDeliveryClientNonce, messagingWakeIdempotencyKey } from "./webhook-inbound.js";
 
-const signupPolicy = { signupsEnabled: undefined, signupAllowlist: undefined };
-
 function createDeps(
   overrides: {
     identity?: unknown;
@@ -278,7 +276,6 @@ function createDeps(
     jobs: { enqueue },
     provision,
     openSignup: true,
-    signupPolicy,
     acknowledge,
     runs,
     botReplies,
@@ -360,15 +357,12 @@ describe("createMessagingInboundHandler DM routing", () => {
     const handle = createMessagingInboundHandler(deps);
     await handle(dmEvent);
 
-    expect(deps.provision).toHaveBeenCalledWith(
-      {
-        provider: "sendblue",
-        address: "+15551111111",
-        dmThreadId: "sendblue:dm-1",
-        displayName: null,
-      },
-      signupPolicy,
-    );
+    expect(deps.provision).toHaveBeenCalledWith({
+      provider: "sendblue",
+      address: "+15551111111",
+      dmThreadId: "sendblue:dm-1",
+      displayName: null,
+    });
     expect(deps.sendUserMessage).toHaveBeenCalledWith(
       expect.objectContaining({
         spaceId: "ws-new",

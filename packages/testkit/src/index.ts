@@ -1,7 +1,10 @@
+import { DestinationEmulator, McpEmulator } from "@rakazo/adapters";
+
 export { DestinationEmulator, McpEmulator } from "@rakazo/adapters";
 
-export function sessionCookieHeader(response: Response) {
-  const cookies = response.headers.getSetCookie?.() ?? [];
-  if (cookies.length) return cookies.map((cookie) => cookie.split(";")[0]).join("; ");
-  return response.headers.get("set-cookie")?.split(",")[0]?.split(";")[0] ?? "";
-}
+/**
+ * There are no accounts: the API acts as its single deployment owner for every
+ * request. Test helpers still thread this value through their `cookie` headers
+ * so call sites read the same as before; the server ignores it.
+ */
+export const OWNER_COOKIE = "x-owner-journey=1";

@@ -4,12 +4,11 @@ import * as Sharing from "expo-sharing";
 import { Image } from "react-native";
 import type { ApiRequestContext } from "./api";
 import { captureApiRequestContext, currentApiBase, rpc, selectedSpaceId } from "./api";
-import { artifactCacheSession } from "./artifact-cache-session";
+import { artifactCacheNamespace } from "./artifact-cache-namespace";
 import { artifactCacheFileName, artifactShareFileName } from "./artifact-file";
 import { t } from "./i18n";
 import type { ImageSize } from "./inline-image";
 import { createKeyedPromiseCache } from "./inline-image";
-import { currentSessionGeneration, loadSessionToken } from "./session";
 
 export type MobileArtifactTarget = { botId: string } | { groupId: string };
 
@@ -35,7 +34,6 @@ export function writeArtifactCacheFile(
 
 type ArtifactScope = {
   context: ApiRequestContext;
-  generation: number;
   selectionId: string | null;
   namespace: string;
   userId: string;
@@ -43,42 +41,30 @@ type ArtifactScope = {
 let identity: { key: string; scope: Promise<ArtifactScope> } | undefined;
 
 function assertCurrent(scope: ArtifactScope): void {
-  if (
-    scope.generation !== currentSessionGeneration() ||
-    scope.context.apiBase !== currentApiBase() ||
-    scope.selectionId !== selectedSpaceId()
-  ) {
-    throw new Error("Artifact session changed");
+  if (scope.context.apiBase !== currentApiBase() || scope.selectionId !== selectedSpaceId()) {
+    throw new Error("Artifact scope changed");
   }
 }
 
 function artifactScope(): Promise<ArtifactScope> {
-  const generation = currentSessionGeneration();
   const apiBase = currentApiBase();
   const selectionId = selectedSpaceId();
-  const key = JSON.stringify([apiBase, generation, selectionId]);
+  const key = JSON.stringify([apiBase, selectionId]);
   if (identity?.key === key) return identity.scope;
   imageArtifactUris.clear();
   imageArtifactSizes.clear();
   imageArtifactRequests.clear();
   const scope = (async () => {
     const context = await captureApiRequestContext();
-    const token = await loadSessionToken();
-    if (
-      apiBase !== context.apiBase ||
-      generation !== currentSessionGeneration() ||
-      selectionId !== selectedSpaceId()
-    )
-      throw new Error("Artifact session changed");
+    if (apiBase !== context.apiBase || selectionId !== selectedSpaceId())
+      throw new Error("Artifact scope changed");
     const me = await rpc<Pick<Me, "userId">>("me", {}, { requestContext: context });
-    if (generation !== currentSessionGeneration()) throw new Error("Artifact session changed");
     if (!me.userId) throw new Error("Missing artifact owner");
     const result = {
       context,
-      generation,
       selectionId,
       userId: me.userId,
-      namespace: await artifactCacheSession(token),
+      namespace: await artifactCacheNamespace(),
     };
     assertCurrent(result);
     return result;
@@ -145,7 +131,7 @@ async function cacheMobileArtifact(
   return file;
 }
 
-/** Local playback URI using the same authenticated, session-scoped artifact cache. */
+/** Local playback URI from the same artifact cache. */
 export async function audioArtifactUri(
   target: MobileArtifactTarget,
   artifactId: string,
@@ -190,7 +176,7 @@ const imageArtifactRequests = new Map<
 >();
 
 /**
- * Local file URI of an image artifact, downloaded through the authenticated RPC and cached on
+ * Local file URI of an image artifact, downloaded through the RPC and cached on
  * disk. Concurrent callers (every bubble showing the same image) share one download.
  */
 export async function imageArtifactUri(
@@ -204,7 +190,6 @@ export async function imageArtifactUri(
     scope.context.apiBase,
     scope.userId,
     scope.namespace,
-    scope.generation,
     requestKey(target, artifactId, mimeType),
   ]);
   imageArtifactRequests.set(key, { target, artifactId, mimeType, scope });
@@ -218,7 +203,7 @@ export async function imageArtifactUri(
   return refreshed;
 }
 
-// Natural dimensions share the URI cache's session lifetime; fitted sizes stay per layout.
+// Natural dimensions share the URI cache's lifetime; fitted sizes stay per layout.
 const imageArtifactSizes = createKeyedPromiseCache<ImageSize>(
   (uri) =>
     new Promise((resolve, reject) => {

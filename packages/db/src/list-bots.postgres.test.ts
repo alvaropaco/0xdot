@@ -58,7 +58,6 @@ describePostgres("listBots sidebar previews (PostgreSQL)", () => {
   const provider = "sendblue";
   const stamp = String(Date.now()).slice(-7);
   const ownerAddress = `+1555${stamp}`;
-  const signup = { signupsEnabled: undefined, signupAllowlist: undefined };
   const window = 16;
   let prisma: PrismaClient;
   let pool: Pool;
@@ -73,7 +72,6 @@ describePostgres("listBots sidebar previews (PostgreSQL)", () => {
     userId: identity.userId,
     spaceId: identity.spaceId,
     email: "listbots@example.com",
-    isDeploymentOwner: false,
   });
   const botInput = (name: string) => ({
     name,
@@ -93,7 +91,7 @@ describePostgres("listBots sidebar previews (PostgreSQL)", () => {
       await db.pool.end();
     };
     const provisioned = await runAsSystem("test fixture", () =>
-      provisionMessagingIdentity(prisma, { provider, address: ownerAddress }, signup),
+      provisionMessagingIdentity(prisma, { provider, address: ownerAddress }),
     );
     owner = provisioned;
     const actor = actorFor(owner);

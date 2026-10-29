@@ -4,7 +4,7 @@ import path from "node:path";
 import { ComposioConnector, FakeComposioClient } from "@rakazo/adapters";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { createApp } from "../../../apps/api/src/app.ts";
-import { sessionCookieHeader } from "./index.js";
+import { OWNER_COOKIE } from "./index.js";
 
 type App = { request: (input: string, init?: RequestInit) => Promise<Response> };
 type AppHandles = Awaited<ReturnType<typeof createApp>>;
@@ -308,19 +308,15 @@ describeWithDatabase("structured @ mention targets", () => {
   });
 });
 
-async function signup(app: App, email: string, name: string) {
-  const res = await app.request("/api/auth/sign-up/email", {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      origin: "http://127.0.0.1:5173",
-    },
-    body: JSON.stringify({ email, password: "password12", name }),
-  });
-  if (res.status >= 400) {
-    throw new Error(`signup failed ${res.status}: ${await res.text()}`);
-  }
-  return sessionCookieHeader(res);
+/**
+ * There are no accounts: the API acts as its single deployment owner for every
+ * request, so sign-up is a no-op kept for call-site readability.
+ */
+async function signup(app: App, email: string, name: string): Promise<string> {
+  void app;
+  void email;
+  void name;
+  return OWNER_COOKIE;
 }
 
 async function raw(app: App, cookie: string, proc: string, body: unknown = {}) {

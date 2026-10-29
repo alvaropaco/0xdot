@@ -54,7 +54,7 @@ test("sidebar rail keeps chats interactive and remembers a dragged width", async
   await captureScreenshot(page, testInfo, "sidebar-mini-avatar-rail");
   await page.getByTestId("user-menu-trigger").click();
   await page.getByRole("button", { name: "Connect apps", exact: true }).click();
-  await expect(page.getByTestId("account-menu-header")).toBeHidden();
+  await expect(page.getByRole("button", { name: "Settings", exact: true })).toBeHidden();
   await page.getByRole("button", { name: "Close integrations", exact: true }).click();
   await page.reload();
   await expect(sidebar).toHaveCSS("width", "72px");

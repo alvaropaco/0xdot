@@ -6,7 +6,6 @@ const SETTINGS_SECTIONS = [
   "confirmations",
   "usage",
   "computer",
-  "billing",
   "updates",
 ] as const;
 

@@ -6,8 +6,6 @@ import { actorFromMembership } from "./app.js";
 const actor = {
   userId: "user-1",
   spaceId: "space-support",
-  email: "owner@example.test",
-  isDeploymentOwner: false,
 };
 
 function prisma(options: { membership: boolean; failure?: Error }) {
@@ -15,13 +13,7 @@ function prisma(options: { membership: boolean; failure?: Error }) {
     spaceMember: {
       findFirst: vi.fn(async () => {
         if (options.failure) throw options.failure;
-        return options.membership
-          ? {
-              userId: actor.userId,
-              spaceId: actor.spaceId,
-              member: { user: { email: actor.email } },
-            }
-          : null;
+        return options.membership ? { userId: actor.userId, spaceId: actor.spaceId } : null;
       }),
     },
     deploymentSettings: {

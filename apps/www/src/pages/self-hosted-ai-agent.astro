@@ -99,8 +99,7 @@ const structuredData = faqPageStructuredData(SELF_HOST_FAQS);
         from the main branch, <code>linux/amd64</code> and <code>linux/arm64</code>).
       </p>
       <p>
-        Open <a href="http://127.0.0.1:5173">http://127.0.0.1:5173</a> and create an account. The first
-        registered user becomes the deployment owner. Connect a model in the app, or set <code>OPENROUTER_API_KEY</code> before startup. Local Docker computers are on by default.
+        Open <a href="http://127.0.0.1:5173">http://127.0.0.1:5173</a> and you are in. Connect a model in the app, or set <code>OPENROUTER_API_KEY</code> before startup. Local Docker computers are on by default.
       </p>
       <CaptionedImage
         src="/graphics/chat/create-bot.png"
@@ -142,13 +141,13 @@ const structuredData = faqPageStructuredData(SELF_HOST_FAQS);
       </p>
       <pre><code>{PUBLISHED_IMAGES_SERVER}</code></pre>
       <p>
-        Before the second command, set <code>RAKAZO_HOST</code> to the hostname and set <code>BETTER_AUTH_URL</code>, <code>WEB_ORIGIN</code>, and <code>API_URL</code> to that same <code>https://</code> origin. For a remote computer instead of local Docker, set <code>SANDBOX_PROVIDER</code> to <code>e2b</code>, <code>daytona</code>, <code>createos</code>,
+        Before the second command, set <code>RAKAZO_HOST</code> to the hostname and set <code>WEB_ORIGIN</code> and <code>API_URL</code> to that same <code>https://</code> origin. For a remote computer instead of local Docker, set <code>SANDBOX_PROVIDER</code> to <code>e2b</code>, <code>daytona</code>, <code>createos</code>,
         or <code>boat</code> and add that provider's API key.
       </p>
       <pre><code>{CADDY_SNIPPET}</code></pre>
       <p>
         Replace <code>app.example.com</code> with your host. Desktop clients should use <strong>Existing instance</strong> with the <code>https://</code> address. The <a href={`${DOCS_URL}#public-single-vm-deployment`}>public single-VM section</a> covers
-        production Compose, host hardening, signup allowlists, and SMTP.
+        production Compose and host hardening.
       </p>
       <p>
         If downloads are blocked, use the <a href={SELF_HOST_RESTRICTED_URL}>restricted-network guide</a>. Secret names and recovery are
@@ -159,7 +158,7 @@ const structuredData = faqPageStructuredData(SELF_HOST_FAQS);
       <p>Use this path to develop Rakazo. The published images above are enough to run it.</p>
       <pre><code>{SOURCE_CHECKOUT}</code></pre>
       <p>
-        Set <code>POSTGRES_PASSWORD</code> and <code>POSTGRES_APP_PASSWORD</code> to two URI-safe random values (for example <code>openssl rand -hex 16</code>) and put them in <code>DATABASE_MIGRATION_URL</code> and <code>DATABASE_URL</code>. Set <code>BETTER_AUTH_SECRET</code>, <code>ENCRYPTION_KEY</code>, and <code>SCREEN_PROXY_SECRET</code> to independent long random values. Docker sandboxes also need
+        Set <code>POSTGRES_PASSWORD</code> and <code>POSTGRES_APP_PASSWORD</code> to two URI-safe random values (for example <code>openssl rand -hex 16</code>) and put them in <code>DATABASE_MIGRATION_URL</code> and <code>DATABASE_URL</code>. Set <code>ENCRYPTION_KEY</code> and <code>SCREEN_PROXY_SECRET</code> to independent long random values. Docker sandboxes also need
         a dedicated <code>SANDBOX_SUPERVISOR_TOKEN</code>. Keep these in <code>.env</code>, not in git.
       </p>
       <p>
@@ -181,7 +180,7 @@ const structuredData = faqPageStructuredData(SELF_HOST_FAQS);
       </p>
       <p>{RUN_ON_YOUR_MAC}</p>
       <p>
-        In the mobile app, tap <strong>Use a custom server</strong> on the sign-in screen and enter
+        In the mobile app, open <strong>Settings → Server</strong> and enter
         the same HTTPS origin as <code>WEB_ORIGIN</code>.
       </p>
 

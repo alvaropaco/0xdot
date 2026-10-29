@@ -12,7 +12,7 @@ import {
   useStackedSettings,
 } from "../components/settings-group";
 import type { MobileBot } from "../lib/api";
-import { currentApiBase, loadSessionToken, rpc, selectedSpaceId } from "../lib/api";
+import { currentApiBase, rpc, selectedSpaceId } from "../lib/api";
 import { useI18n } from "../lib/i18n";
 import { afterChatNotifyChange } from "../lib/live-notifications";
 import { native, useThemedStyles } from "../lib/native";
@@ -94,12 +94,10 @@ export default function BotProfile() {
       },
       onSaved: async (notify) => {
         try {
-          await afterChatNotifyChange(
-            currentApiBase(),
-            await loadSessionToken(),
-            selectedSpaceId() ?? "",
-            { threadId: bot.threadId, notify },
-          );
+          await afterChatNotifyChange(currentApiBase(), selectedSpaceId() ?? "", {
+            threadId: bot.threadId,
+            notify,
+          });
         } catch {
           // The server save succeeded; device reconciliation can retry later.
         }

@@ -14,11 +14,7 @@ export function confirmDeleteBot(
   const remove = async (deleteMemories: boolean) => {
     try {
       if (requestContext) {
-        await rpc(
-          "bots/remove",
-          { botId: bot.id, deleteMemories },
-          { requestContext, skipSpaceAuthRecovery: true },
-        );
+        await rpc("bots/remove", { botId: bot.id, deleteMemories }, { requestContext });
       } else {
         await rpc("bots/remove", { botId: bot.id, deleteMemories });
       }
