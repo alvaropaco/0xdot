@@ -106,7 +106,7 @@ async function main() {
       const suites = [
         ...globSync("{apps,packages}/*/src/**/*.postgres.test.ts").sort(),
         "packages/testkit/src/journeys.test.ts",
-        "packages/testkit/src/authorization.test.ts",
+        "packages/testkit/src/rpc-headers.test.ts",
         "packages/testkit/src/attachments.test.ts",
         "packages/testkit/src/voice.test.ts",
         "packages/testkit/src/search.test.ts",

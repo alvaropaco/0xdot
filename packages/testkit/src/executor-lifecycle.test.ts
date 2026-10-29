@@ -19,6 +19,7 @@ import {
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { createApp } from "../../../apps/api/src/app.ts";
 import { discardBotIntroFromCreate } from "./discard-bot-intro.js";
+import { OWNER_COOKIE } from "./index.js";
 import { asSystem } from "./system-db.js";
 
 process.env.WAKEUP_DRIVER = "memory";
@@ -1195,12 +1196,17 @@ describeIntegration("run executor lifecycle", () => {
       },
       "dedicated",
     );
-    const team = await seedRun("team-fence-isolation-postgres", "exercise team isolation", {
-      status: "running",
-      leaseOwner: "worker-team",
-      leaseFence: 1,
-      leaseExpiresAt: new Date(Date.now() + 60_000),
-    });
+    const team = await seedRun(
+      "team-fence-isolation-postgres",
+      "exercise team isolation",
+      {
+        status: "running",
+        leaseOwner: "worker-team",
+        leaseFence: 1,
+        leaseExpiresAt: new Date(Date.now() + 60_000),
+      },
+      "team",
+    );
     const activeRunIds = [dedicated.run.id, team.run.id];
     let teamLease: Awaited<ReturnType<typeof acquireComputerExecutionLease>> = null;
     let conflictingLease: {
@@ -1330,7 +1336,12 @@ describeIntegration("run executor lifecycle", () => {
       instructions: "",
       notifyOnFinish: false,
     });
-    if (computerMode) await rpc(cookie, "bots/setComputer", { botId: bot.id, mode: computerMode });
+    // Tests share one owner now, so an unset mode opts into a dedicated
+    // computer: the shared Team Computer would carry leases between tests.
+    await rpc(cookie, "bots/setComputer", {
+      botId: bot.id,
+      mode: computerMode ?? "dedicated",
+    });
     const thread = await db.thread.findUniqueOrThrow({ where: { botId: bot.id } });
     const task = await db.task.create({
       data: {
@@ -1402,12 +1413,22 @@ describeIntegration("run executor lifecycle", () => {
   }
 
   async function rpc<T>(cookie: string, procedure: string, body: unknown = {}): Promise<T> {
+    return rpcWithSpace<T>(cookie, undefined, procedure, body);
+  }
+
+  async function rpcWithSpace<T>(
+    cookie: string,
+    spaceId: string | undefined,
+    procedure: string,
+    body: unknown = {},
+  ): Promise<T> {
     const response = await handles.app.request(`/rpc/${procedure}`, {
       method: "POST",
       headers: {
         "content-type": "application/json",
         origin: "http://127.0.0.1:5173",
         cookie,
+        ...(spaceId ? { "x-rakazo-space-id": spaceId } : {}),
       },
       body: JSON.stringify({ json: body }),
     });

@@ -152,10 +152,17 @@ describeSearch("workspace search", () => {
     });
     await sendAndWait(app, ownerCookie, ownerBot.id, { text: "owner-only-token-xyz" });
 
-    const intruderCookie = await signup(app, `search-intruder-${stamp}@rakazo.test`, "Intruder");
-    const hits = await rpc<{ hits: unknown[] }>(app, intruderCookie, "search/query", {
-      q: "owner-only-token-xyz",
+    // Same owner, different Space: search stays inside the requested Space.
+    const otherSpace = await rpc<{ id: string }>(app, ownerCookie, "spaces/create", {
+      name: `Elsewhere ${stamp}`,
     });
+    const hits = await rpcWithSpace<{ hits: unknown[] }>(
+      app,
+      ownerCookie,
+      otherSpace.id,
+      "search/query",
+      { q: "owner-only-token-xyz" },
+    );
     expect(hits.hits).toEqual([]);
   });
 
@@ -233,6 +240,22 @@ async function signup(app: App, email: string, name: string): Promise<string> {
   return OWNER_COOKIE;
 }
 
+async function rpcWithSpace<T>(
+  app: App,
+  cookie: string,
+  spaceId: string,
+  proc: string,
+  body: unknown = {},
+): Promise<T> {
+  const res = await raw(app, cookie, proc, body, spaceId);
+  const text = await res.text();
+  const parsed = JSON.parse(text) as { json?: T; error?: { message?: string } };
+  if (res.status >= 400 || parsed.error) {
+    throw new Error(`${proc} ${res.status}: ${parsed.error?.message ?? text}`);
+  }
+  return parsed.json as T;
+}
+
 async function rpc<T>(app: App, cookie: string, proc: string, body: unknown = {}): Promise<T> {
   const res = await raw(app, cookie, proc, body);
   const text = await res.text();
@@ -243,13 +266,14 @@ async function rpc<T>(app: App, cookie: string, proc: string, body: unknown = {}
   return discardBotIntroFromCreate(botIntroHarness, cookie, proc, parsed.json as T);
 }
 
-async function raw(app: App, cookie: string, proc: string, body: unknown) {
+async function raw(app: App, cookie: string, proc: string, body: unknown, spaceId?: string) {
   return app.request(`/rpc/${proc}`, {
     method: "POST",
     headers: {
       "content-type": "application/json",
       cookie,
       origin: "http://127.0.0.1:5173",
+      ...(spaceId ? { "x-rakazo-space-id": spaceId } : {}),
     },
     body: JSON.stringify({ json: body }),
   });

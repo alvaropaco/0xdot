@@ -18,7 +18,7 @@ export default defineConfig({
   testDir: "./e2e",
   forbidOnly: Boolean(process.env.CI),
   fullyParallel: false,
-  workers: realSandbox ? 1 : undefined,
+  workers: realSandbox ? 1 : Number(process.env.E2E_WORKERS ?? 0) || undefined,
   timeout: boatSandbox ? 600_000 : realSandbox ? 300_000 : 120_000,
   expect: { timeout: boatSandbox ? 300_000 : realSandbox ? 90_000 : 20_000 },
   reporter: reporters,
