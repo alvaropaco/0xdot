@@ -1,5 +1,12 @@
 import { expect, type Locator, type Page, test } from "@playwright/test";
-import { activeBotId, captureScreenshot, completeOnboarding, rpc, signup } from "./helpers";
+import {
+  activeBotId,
+  captureScreenshot,
+  completeOnboarding,
+  createIsolatedSpace,
+  rpc,
+  signup,
+} from "./helpers";
 
 /**
  * Build a real browser Selection over `startNeedle` … `endNeedle` inside `scope`
@@ -61,6 +68,9 @@ async function selectAndRelease(
 
 test("selecting a text span quotes it into a reply", async ({ page }, testInfo) => {
   const stamp = Date.now();
+  // Quote derivation runs against this Space's thread alone; the shared owner
+  // thread's run queue can starve the scripted reply past the expect timeout.
+  await createIsolatedSpace(page, `quote ${stamp}`);
   await signup(page, `quote-${stamp}@rakazo.test`, "password12", "Quote Tester");
   await completeOnboarding(page);
 
@@ -149,6 +159,7 @@ test("selecting a text span quotes it into a reply", async ({ page }, testInfo) 
 
 test("rendered markdown selections survive server quote derivation", async ({ page }, testInfo) => {
   const stamp = Date.now();
+  await createIsolatedSpace(page, `quote markdown ${stamp}`);
   await signup(page, `quote-markdown-${stamp}@rakazo.test`, "password12", "Quote Tester");
   await completeOnboarding(page);
 
@@ -223,6 +234,7 @@ test("rendered markdown selections survive server quote derivation", async ({ pa
 
 test("selecting text inside a table cell quotes the rendered cell", async ({ page }, testInfo) => {
   const stamp = Date.now();
+  await createIsolatedSpace(page, `quote cell ${stamp}`);
   await signup(page, `quote-cell-${stamp}@rakazo.test`, "password12", "Quote Tester");
   await completeOnboarding(page);
 
@@ -273,6 +285,8 @@ test("selecting text inside a table cell quotes the rendered cell", async ({ pag
 
 test("an armed reply survives the parent paging out of the transcript", async ({ page }) => {
   const stamp = Date.now();
+  const spaceId = await createIsolatedSpace(page, `quote evict ${stamp}`);
+  const spaceHeaders = { "x-rakazo-space-id": spaceId };
   await signup(page, `quote-evict-${stamp}@rakazo.test`, "password12", "Quote Tester");
   await completeOnboarding(page);
 
@@ -302,27 +316,37 @@ test("an armed reply survives the parent paging out of the transcript", async ({
   // 100). While the flood's runs are alive, refreshes race the event stream and
   // get discarded as stale — so stop the thread to end the churn first.
   for (let i = 0; i < 105; i++) {
-    await rpc(page, "threads/send", {
-      botId,
-      text: `quote-filler-${stamp}-${i}`,
-      clientNonce: `qf-${stamp}-${i}`,
-    });
+    await rpc(
+      page,
+      "threads/send",
+      {
+        botId,
+        text: `quote-filler-${stamp}-${i}`,
+        clientNonce: `qf-${stamp}-${i}`,
+      },
+      spaceHeaders,
+    );
   }
   const lastFiller = userRow(`quote-filler-${stamp}-104`);
   await expect(lastFiller).toBeVisible({ timeout: 30_000 });
   const lastFillerId = await lastFiller.getAttribute("data-message-id");
   expect(lastFillerId).toBeTruthy();
-  await rpc(page, "threads/stop", { botId });
+  await rpc(page, "threads/stop", { botId }, spaceHeaders);
   // stop deletes the cancelled runs' thread.progress events; if one of those
   // was the last applied event, the live cursor outranks every later snapshot
   // and refreshes are discarded as stale. A reaction writes one durable event
   // past the wedge — no run, no new churn — so the next refresh can commit.
-  await rpc(page, "threads/react", {
-    botId,
-    messageId: lastFillerId,
-    reaction: "👍",
-    clientNonce: `qr-${stamp}`,
-  });
+  await rpc(
+    page,
+    "threads/react",
+    {
+      botId,
+      messageId: lastFillerId,
+      reaction: "👍",
+      clientNonce: `qr-${stamp}`,
+    },
+    spaceHeaders,
+  );
   const computerButton = page.getByRole("button", { name: "Agent computer", exact: true });
   await expect(async () => {
     if ((await computerButton.getAttribute("data-active")) !== null) {
@@ -347,11 +371,12 @@ test("an armed reply survives the parent paging out of the transcript", async ({
   await expect(userRow(parentText)).toBeVisible({ timeout: 20_000 });
 
   // Stop the reply's run so its continues cannot churn into the next test.
-  await rpc(page, "threads/stop", { botId });
+  await rpc(page, "threads/stop", { botId }, spaceHeaders);
 });
 
 test("quoting a second message retargets the armed reply", async ({ page }) => {
   const stamp = Date.now();
+  await createIsolatedSpace(page, `quote switch ${stamp}`);
   await signup(page, `quote-switch-${stamp}@rakazo.test`, "password12", "Quote Tester");
   await completeOnboarding(page);
 

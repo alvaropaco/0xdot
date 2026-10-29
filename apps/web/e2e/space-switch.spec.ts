@@ -26,7 +26,9 @@ test("opening a bot in another space switches in place, without a page reload", 
   expect(created.ok()).toBe(true);
   const { json: scout } = (await created.json()) as { json: { id: string } };
   await page.reload();
-  await expect(page.getByRole("button", { name: /Scout/ }).first()).toBeVisible();
+  // The sidebar lists every Space's roster; match this Space's Scout by id.
+  const scoutEntry = page.locator(`[data-roster-bot-id="${scout.id}"]`);
+  await expect(scoutEntry).toBeVisible();
 
   // A reload would drop this marker; an in-place switch keeps it. The observer
   // records any moment the sidebar lost its bots while the screen was not being
@@ -41,7 +43,7 @@ test("opening a bot in another space switches in place, without a page reload", 
       if (!sidebar?.textContent?.includes("Scout") && !held) w.visibleBlanks! += 1;
     }).observe(document.body, { childList: true, subtree: true, characterData: true });
   });
-  await page.getByRole("button", { name: /Scout/ }).first().click();
+  await scoutEntry.click();
   await page.waitForURL(`**/app/${scout.id}`);
   await expect(page.getByPlaceholder("Message Scout")).toBeVisible();
   expect(

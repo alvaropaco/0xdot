@@ -1,7 +1,16 @@
 import { expect, test } from "@playwright/test";
-import { activeBotId, captureScreenshot, completeOnboarding, rpc, signup } from "./helpers";
+import {
+  activeBotId,
+  captureScreenshot,
+  completeOnboarding,
+  createIsolatedSpace,
+  rpc,
+  signup,
+} from "./helpers";
 
 test("onboarding choices show borderless rows in both themes", async ({ page }, testInfo) => {
+  // The focus card only exists on an unanswered first bot; give the test its own.
+  await createIsolatedSpace(page, `choice rows ${Date.now()}`);
   await signup(page, `onboarding-rows-${Date.now()}@rakazo.test`, "password12", "Sample");
   await completeOnboarding(page);
   const question = page.getByText("What do you want me on first?", { exact: true });
@@ -32,6 +41,10 @@ test("renders tappable choice buttons and submits the offered action id", async 
   page,
 }, testInfo) => {
   const stamp = Date.now();
+  // Shared prompts accumulate identical ask cards on the owner thread; keep
+  // the strict locators on this test's own Space.
+  const spaceId = await createIsolatedSpace(page, `choice card ${stamp}`);
+  const spaceHeaders = { "x-rakazo-space-id": spaceId };
   await signup(page, `choice-card-${stamp}@rakazo.test`, "password12", "Choice Card");
   await completeOnboarding(page);
 
@@ -43,9 +56,12 @@ test("renders tappable choice buttons and submits the offered action id", async 
   await expect
     .poll(
       async () => {
-        const snapshot = await rpc<{ run?: { status: string } | null }>(page, "threads/get", {
-          botId,
-        });
+        const snapshot = await rpc<{ run?: { status: string } | null }>(
+          page,
+          "threads/get",
+          { botId },
+          spaceHeaders,
+        );
         return snapshot.run?.status ?? null;
       },
       { timeout: 60_000 },
@@ -117,7 +133,7 @@ test("renders tappable choice buttons and submits the offered action id", async 
               actions?: Array<{ id: string; label: string }>;
             }>;
           }>;
-        }>(page, "threads/messages", { botId });
+        }>(page, "threads/messages", { botId }, spaceHeaders);
         const answered = history.messages
           .flatMap((message) => message.blocks)
           .find(
@@ -139,6 +155,8 @@ test("renders tappable choice buttons and submits the offered action id", async 
 test("a typed reply answers the latest question and resumes its run", async ({
   page,
 }, testInfo) => {
+  const spaceId = await createIsolatedSpace(page, `choice typed ${Date.now()}`);
+  const spaceHeaders = { "x-rakazo-space-id": spaceId };
   await signup(page, `typed-choice-${Date.now()}@rakazo.test`, "password12", "Typed Choice");
   await completeOnboarding(page);
   const botId = activeBotId(page);
@@ -154,6 +172,7 @@ test("a typed reply answers the latest question and resumes its run", async ({
           page,
           "threads/get",
           { botId },
+          spaceHeaders,
         );
         waitingRunId = snapshot.run?.id;
         return snapshot.run?.status;
@@ -176,7 +195,7 @@ test("a typed reply answers the latest question and resumes its run", async ({
           runId: string | null;
           blocks: Array<{ kind: string; text?: string }>;
         }>;
-      }>(page, "threads/get", { botId });
+      }>(page, "threads/get", { botId }, spaceHeaders);
       return snapshot.messages.findLast(
         (message) =>
           message.role === "user" &&

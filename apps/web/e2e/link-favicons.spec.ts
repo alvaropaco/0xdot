@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { captureScreenshot, completeOnboarding, signup } from "./helpers";
+import { captureScreenshot, completeOnboarding, createIsolatedSpace, signup } from "./helpers";
 
 // Icons the API would have fetched; the test stands in for it so CI never contacts a real site.
 const icons: Record<string, string> = {
@@ -27,6 +27,9 @@ test("links in a bot reply show the site icon the API resolved", async ({ page }
     await route.abort();
   });
 
+  // The bubble assertions pick the last bot message in the thread, so the
+  // echo must land in this test's own Space, not the shared owner thread.
+  await createIsolatedSpace(page, `link icons ${Date.now()}`);
   await signup(page, `link-favicons-${Date.now()}@rakazo.test`, "password12", "Link Icons");
   await completeOnboarding(page);
   const composer = page.getByRole("combobox", { name: /^Message/ });

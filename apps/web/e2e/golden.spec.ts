@@ -3,18 +3,13 @@ import {
   activeBotId,
   captureScreenshot,
   completeOnboarding,
+  createIsolatedSpace,
   expandAdvancedSection,
   expectCardWidth,
   realSandboxTimeout,
   rpc,
   signup,
 } from "./helpers";
-
-function sidebarBotButton(page: Page, name: RegExp | string) {
-  return page.locator("[data-sidebar-group] [data-roster-bot-id]").filter({
-    has: page.locator("[data-roster-bot-name]").filter({ hasText: name }),
-  });
-}
 
 test.describe.configure({ mode: "serial" });
 
@@ -44,9 +39,16 @@ test("a bot completes durable work that survives a reload", async ({ browser }, 
 });
 
 test("takeover, routine, plugins, and export are reachable", async ({ page }, testInfo) => {
+  // Generic role queries below ("Back", roster buttons) must not match the
+  // shared owner Space's roster, so the flow runs in its own Space.
+  const spaceId = await createIsolatedSpace(page, `golden flow ${Date.now()}`);
+  const spaceHeaders = { "x-rakazo-space-id": spaceId };
   const stamp = Date.now();
   await signup(page, `flow-${stamp}@rakazo.test`, "password12", "Flow");
   await completeOnboarding(page);
+  // Every Space's onboarding bot is named Chief, so sidebar clicks must target
+  // this Space's Chief by id — a name query can switch to another Space's bot.
+  const chiefId = activeBotId(page);
 
   const composer = page.getByPlaceholder(/Message/);
   await composer.fill("install the gsc cli and sign in");
@@ -55,7 +57,7 @@ test("takeover, routine, plugins, and export are reachable", async ({ page }, te
     page.getByText(/handing you the computer|sign in to continue|protected input/i).first(),
   ).toBeVisible({ timeout: realSandboxTimeout(90_000, 30_000) });
   await expect
-    .poll(() => threadRunStatus(page), {
+    .poll(() => threadRunStatus(page, spaceHeaders), {
       timeout: realSandboxTimeout(90_000, 30_000),
       message: "the protected-input run must be ready for takeover",
     })
@@ -86,7 +88,7 @@ test("takeover, routine, plugins, and export are reachable", async ({ page }, te
   await composer.fill("sign in again so I can skip this time");
   await page.keyboard.press("Enter");
   await expect
-    .poll(() => threadRunStatus(page), {
+    .poll(() => threadRunStatus(page, spaceHeaders), {
       timeout: realSandboxTimeout(90_000, 30_000),
       message: "the second protected-input run must be ready for takeover",
     })
@@ -123,22 +125,26 @@ test("takeover, routine, plugins, and export are reachable", async ({ page }, te
   });
   await captureScreenshot(page, testInfo, "09a-computer-takeover-skipped");
 
-  await page.getByRole("button", { name: "Create Routine" }).click();
-  await page.locator("label:has-text('Name') input").fill("Monday briefing");
-  await page
+  // The routine editor lives in the side panel. Generic labels ("Save",
+  // "Back") must not reach the sidebar, where another Space's roster button
+  // can carry the same word in its preview text.
+  const panel = page.getByTestId("side-panel");
+  await panel.getByRole("button", { name: "Create Routine" }).click();
+  await panel.locator("label:has-text('Name') input").fill("Monday briefing");
+  await panel
     .locator("label:has-text('Instruction') textarea")
     .fill("write a file in your home called notes/result.txt that says routine-ok");
-  await page.getByRole("button", { name: "Add trigger" }).click();
+  await panel.getByRole("button", { name: "Add trigger" }).click();
   await page.getByRole("menuitem", { name: "On a schedule" }).hover();
   await page.getByRole("menuitem", { name: "Every day", exact: true }).click();
   const savedRoutine = page.waitForResponse(
     (response) => response.url().includes("/rpc/routines/create") && response.ok(),
   );
-  await page.getByRole("button", { name: "Save" }).click();
+  await panel.getByRole("button", { name: "Save" }).click();
   await savedRoutine;
-  await expect(page.getByRole("button", { name: "Save" })).toBeEnabled();
-  await page.getByRole("button", { name: "Back" }).click();
-  await expect(page.getByText("Monday briefing")).toBeVisible();
+  await expect(panel.getByRole("button", { name: "Save" })).toBeEnabled();
+  await panel.getByRole("button", { name: "Back" }).click();
+  await expect(panel.getByText("Monday briefing")).toBeVisible();
   await captureScreenshot(page, testInfo, "10-routine-created");
 
   let releaseCatalog!: () => void;
@@ -346,12 +352,10 @@ test("takeover, routine, plugins, and export are reachable", async ({ page }, te
 
   await page.getByRole("button", { name: "Close integrations" }).click();
 
-  await page.getByText("Chief").first().click();
-  const gear = page.getByRole("button", { name: "Show settings" });
-  if (!(await gear.isVisible().catch(() => false))) {
-    await page.getByRole("button", { name: "Agent computer", exact: true }).click();
-  }
-  await gear.click();
+  // The header trigger opens bot settings from any panel state; the old
+  // gear-in-panel dance races the side panel's fold animation.
+  await page.locator(`[data-roster-bot-id="${chiefId}"]`).click();
+  await page.getByTestId("bot-settings-trigger").click();
   await page
     .getByTestId("bot-settings")
     .getByRole("button", { name: "Advanced", exact: true })
@@ -365,9 +369,7 @@ test("takeover, routine, plugins, and export are reachable", async ({ page }, te
   await expect(settings.getByRole("button", { name: "Delete bot" })).toHaveCount(0);
   await page.getByRole("button", { name: "Close panel" }).click();
 
-  await page.locator("aside").first().getByRole("button", { name: /Chief/ }).first().click({
-    button: "right",
-  });
+  await page.locator(`[data-roster-bot-id="${chiefId}"]`).click({ button: "right" });
   const botMenu = page.getByRole("menu", { name: "Actions for Chief" });
   await expect(botMenu.getByRole("menuitem", { name: "Archive" })).toBeVisible();
   await botMenu.getByRole("menuitem", { name: "Delete" }).click();
@@ -391,8 +393,14 @@ test("spawn, stop, and reload restore the shell", async ({ page }, testInfo) => 
   });
   const stamp = Date.now();
   const email = `shell-${stamp}@rakazo.test`;
+  // Own Space: the sidebar lists every Space's roster, so /Chief/ roster
+  // queries must not match the other tests' onboarding bots.
+  const spaceId = await createIsolatedSpace(page, `golden shell ${stamp}`);
+  const spaceHeaders = { "x-rakazo-space-id": spaceId };
   await signup(page, email, "password12", "Shell");
   await completeOnboarding(page);
+  const chiefId = activeBotId(page);
+  await rpc(page, "onboarding/dismissFocus", { botId: chiefId }, spaceHeaders);
   await page.evaluate(() => {
     Object.defineProperty(globalThis.crypto, "randomUUID", {
       value: undefined,
@@ -403,18 +411,33 @@ test("spawn, stop, and reload restore the shell", async ({ page }, testInfo) => 
   const composer = page.locator('textarea[name="chat-message"]');
   await composer.fill("spawn a bot named Scout to research venues");
   await page.keyboard.press("Enter");
-  await expect(sidebarBotButton(page, /Scout/)).toBeVisible({
-    timeout: 30_000,
-  });
+  // The sidebar lists every Space's roster, so match this Space's Scout by id
+  // once the spawn lands (the roster render trails the bots/list read).
+  let scoutId: string | undefined;
+  await expect
+    .poll(
+      async () => {
+        const bots = await rpc<Array<{ id: string; name: string }>>(
+          page,
+          "bots/list",
+          {},
+          spaceHeaders,
+        );
+        scoutId = bots.find((bot) => bot.name === "Scout")?.id;
+        return scoutId;
+      },
+      { timeout: 30_000 },
+    )
+    .toBeTruthy();
+  // Roster entries carry the bot id, which is unique across Spaces.
+  await expect(page.locator(`[data-roster-bot-id="${scoutId}"]`)).toBeVisible();
   const botLinkCard = page.getByTestId("bot-link-card");
   await expect(botLinkCard).toBeVisible({ timeout: 30_000 });
   await expectCardWidth(botLinkCard, 340);
   await captureScreenshot(page, testInfo, "13-spawned-bot");
 
-  await page
-    .locator("[data-sidebar-group]")
-    .getByRole("button", { name: /^Chief/ })
-    .click();
+  // Roster entries carry the bot id, which is unique across Spaces.
+  await page.locator(`[data-roster-bot-id="${chiefId}"]`).click();
   await composer.fill("keep working until I stop you");
   await page.keyboard.press("Enter");
   await expect(page.getByRole("button", { name: "Stop", exact: true })).toBeVisible({
@@ -472,8 +495,8 @@ test("spawn, stop, and reload restore the shell", async ({ page }, testInfo) => 
 
   // The same owner's shell comes back with its roster after a reload.
   await page.reload();
-  await expect(sidebarBotButton(page, /^Chief/)).toBeVisible();
-  await expect(sidebarBotButton(page, /Scout/)).toBeVisible();
+  await expect(page.locator(`[data-roster-bot-id="${chiefId}"]`)).toBeVisible();
+  await expect(page.locator(`[data-roster-bot-id="${scoutId}"]`)).toBeVisible();
   await captureScreenshot(page, testInfo, "15-restored-session");
 });
 
@@ -521,10 +544,13 @@ test("bot context menu pins, duplicates, edits, and confirms deletion", async ({
   await captureScreenshot(page, testInfo, "19-edit-profile");
 });
 
-async function threadRunStatus(page: Page) {
-  const result = await rpc<{ run?: { status?: string } | null }>(page, "threads/get", {
-    botId: activeBotId(page),
-  });
+async function threadRunStatus(page: Page, headers?: Record<string, string>) {
+  const result = await rpc<{ run?: { status?: string } | null }>(
+    page,
+    "threads/get",
+    { botId: activeBotId(page) },
+    headers,
+  );
   return result.run?.status ?? "idle";
 }
 

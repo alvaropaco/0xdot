@@ -1,8 +1,19 @@
 import { expect, test } from "@playwright/test";
-import { activeBotId, captureScreenshot, completeOnboarding, rpc, signup } from "./helpers";
+import {
+  activeBotId,
+  captureScreenshot,
+  completeOnboarding,
+  createIsolatedSpace,
+  rpc,
+  signup,
+} from "./helpers";
 
 test("a ?m= deep link jumps while the thread is streaming", async ({ page }, testInfo) => {
   const stamp = Date.now();
+  // The flood must churn this Space's thread alone; the shared owner thread's
+  // run queue can starve the stream that the jump precondition depends on.
+  const spaceId = await createIsolatedSpace(page, `jump ${stamp}`);
+  const spaceHeaders = { "x-rakazo-space-id": spaceId };
   await signup(page, `jump-${stamp}@rakazo.test`, "password12", "Jump Tester");
   await completeOnboarding(page);
 
@@ -35,11 +46,16 @@ test("a ?m= deep link jumps while the thread is streaming", async ({ page }, tes
       while (flooding) {
         const nonce = `jf-${stamp}-${lane}-${i++}`;
         try {
-          await rpc(page, "threads/send", {
-            botId,
-            text: `jump-flood-${stamp}-${lane}-${i}`,
-            clientNonce: nonce,
-          });
+          await rpc(
+            page,
+            "threads/send",
+            {
+              botId,
+              text: `jump-flood-${stamp}-${lane}-${i}`,
+              clientNonce: nonce,
+            },
+            spaceHeaders,
+          );
           sent++;
         } catch {
           // A rejected send contributes no churn; keep flooding and let the
@@ -87,6 +103,6 @@ test("a ?m= deep link jumps while the thread is streaming", async ({ page }, tes
   } finally {
     flooding = false;
     await flood;
-    await rpc(page, "threads/stop", { botId }).catch(() => {});
+    await rpc(page, "threads/stop", { botId }, spaceHeaders).catch(() => {});
   }
 });

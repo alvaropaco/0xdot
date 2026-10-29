@@ -1,5 +1,11 @@
 import { expect, type Locator, type Page, type Route, test } from "@playwright/test";
-import { activeBotId, captureScreenshot, completeOnboarding, signup } from "./helpers";
+import {
+  activeBotId,
+  captureScreenshot,
+  completeOnboarding,
+  createIsolatedSpace,
+  signup,
+} from "./helpers";
 
 /** Submit from the Send control so an in-flight prior send cannot swallow Enter. */
 async function sendComposerMessage(page: Page, composer: Locator, text: string) {
@@ -69,6 +75,9 @@ test("message hover shows beside-bubble actions; reply links to parent", async (
   page,
 }, testInfo) => {
   const stamp = Date.now();
+  // The focus card ("What do you want me on first?") is answered once per
+  // thread; this test needs its own Space so its first bot still asks.
+  await createIsolatedSpace(page, `hover actions ${stamp}`);
   await signup(page, `hover-actions-${stamp}@rakazo.test`, "password12", "Hover Actions");
   await completeOnboarding(page);
   await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
@@ -339,6 +348,9 @@ test("a message with an attachment centers hover actions on its text bubble", as
 
 test("reply preview jumps to parent outside the loaded page", async ({ page }) => {
   const stamp = Date.now();
+  // Shared-owner thread: concurrent specs keep appending messages and runs to
+  // it, so the hover rail moves under this test's pointer. Own the thread.
+  await createIsolatedSpace(page, `hover parent ${stamp}`);
   await signup(page, `hover-page-${stamp}@rakazo.test`, "password12", "Hover Page");
   await completeOnboarding(page);
 
@@ -424,6 +436,8 @@ test.describe("touch message actions", () => {
   test.use({ hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 } });
 
   test("More exposes actions without simulated hover", async ({ page }, testInfo) => {
+    // Own Space so the fresh first bot still shows the focus card.
+    await createIsolatedSpace(page, `touch actions ${Date.now()}`);
     await signup(page, `touch-actions-${Date.now()}@rakazo.test`, "password12", "Touch Actions");
     await completeOnboarding(page);
     expect(
@@ -479,6 +493,8 @@ test.describe("touch message actions", () => {
 });
 
 test("a reaction receipt refreshes live work and exposes Stop", async ({ page }, testInfo) => {
+  // Own Space so the fresh first bot still shows the focus card.
+  await createIsolatedSpace(page, `reaction work ${Date.now()}`);
   await signup(page, `reaction-work-${Date.now()}@rakazo.test`, "password12", "Reaction Work");
   await completeOnboarding(page);
   await expect(page.getByText("What do you want me on first?", { exact: true })).toBeVisible({

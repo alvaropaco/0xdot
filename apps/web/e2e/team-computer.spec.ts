@@ -94,7 +94,7 @@ test("user control leaves another Team bot's screen available", async ({ page },
   const chiefId = activeBotId(page);
   const workerId = await createBot(page, "Worker", "team");
 
-  await openBot(page, "Chief");
+  await openBot(page, "Chief", chiefId);
   await page.getByRole("button", { name: "Agent computer", exact: true }).click();
   await page.getByTestId("computer-preview").hover();
   await page.getByTestId("computer-preview-open").click();
@@ -312,11 +312,12 @@ async function setComputerMode(
     .toBe(mode);
 }
 
-async function openBot(page: Page, name: string) {
-  await page
-    .getByRole("complementary")
-    .getByRole("button", { name: new RegExp(`^${name}`) })
-    .click();
+async function openBot(page: Page, name: string, botId?: string) {
+  // Roster entries repeat across Spaces; prefer the bot's unique id.
+  const entry = botId
+    ? page.locator(`[data-roster-bot-id="${botId}"]`)
+    : page.getByRole("complementary").getByRole("button", { name: new RegExp(`^${name}`) });
+  await entry.click();
   await expect(page.getByPlaceholder(`Message ${name}`)).toBeVisible();
 }
 

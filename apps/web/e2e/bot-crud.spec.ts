@@ -3,20 +3,26 @@ import {
   captureScreenshot,
   completeOnboarding,
   createBotFromPicker,
+  createIsolatedSpace,
   expandAdvancedSection,
   openNewBot,
   rpc,
   signup,
+  spaceRoster,
 } from "./helpers";
 
 test("bot creation, editing, and deletion persist", async ({ page }, testInfo) => {
   const stamp = Date.now();
+  // The sidebar lists every Space's roster; scope it to this test's own Space
+  // so other specs' bots cannot strict-mode the name queries.
+  const spaceId = await createIsolatedSpace(page, `bot crud ${stamp}`);
+  const spaceHeaders = { "x-rakazo-space-id": spaceId };
   await signup(page, `bot-crud-${stamp}@rakazo.test`, "password12", "Bot CRUD");
   await completeOnboarding(page);
   await page.goto("/app");
   await page.waitForURL(/\/app\/[^/]+$/);
 
-  const botList = page.locator("aside").first();
+  const botList = spaceRoster(page, spaceId);
   await expect(botList.getByRole("button", { name: /^Chief/ })).toBeVisible();
 
   let createFailed = false;
@@ -151,10 +157,15 @@ test("bot creation, editing, and deletion persist", async ({ page }, testInfo) =
   await expect(settings.locator('label[for$="-model"]')).toHaveClass("sr-only");
   await expect(modelSelect).toBeVisible();
   await captureScreenshot(page, testInfo, "bot-settings-sections-advanced");
-  await rpc(page, "scratchpad/create", {
-    botId: deletedBotPath.split("/").at(-1),
-    title: "First fixture task",
-  });
+  await rpc(
+    page,
+    "scratchpad/create",
+    {
+      botId: deletedBotPath.split("/").at(-1),
+      title: "First fixture task",
+    },
+    spaceHeaders,
+  );
   await page.getByRole("button", { name: "Close panel" }).click();
   await page.locator("main").getByRole("button", { name: "Researcher", exact: true }).click();
   await expandAdvancedSection(advancedSection);

@@ -4,10 +4,36 @@ import {
   activeBotId,
   captureScreenshot,
   completeOnboarding,
+  createIsolatedSpace,
   createNamedBot,
   rpc,
   signup,
 } from "./helpers";
+
+/**
+ * Computer state lives on one shared Team Computer, so every bot under test
+ * gets a dedicated computer in its own Space; otherwise a concurrent spec's
+ * boot or session shows through the preview.
+ */
+async function openBotWithDedicatedComputer(page: Page, prefix: string) {
+  const spaceId = await createIsolatedSpace(page, `${prefix} ${Date.now()}`);
+  const spaceHeaders = { "x-rakazo-space-id": spaceId };
+  await signup(page, `${prefix}-${Date.now()}@rakazo.test`, "password12", "Boot Tester");
+  await completeOnboarding(page);
+  const botId = activeBotId(page);
+  await rpc(page, "bots/setComputer", { botId, mode: "dedicated" }, spaceHeaders);
+  // The open shell keeps its bootstrap's stale team-computer snapshot.
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.getByPlaceholder(/Message/).waitFor();
+  // The switch must be durable before the panel is opened.
+  await expect
+    .poll(async () => {
+      const status = await rpc<{ mode: string }>(page, "computer/status", { botId }, spaceHeaders);
+      return status.mode;
+    })
+    .toBe("dedicated");
+  return spaceHeaders;
+}
 
 const screenUrl = "https://screen.example/vnc.html";
 
@@ -27,8 +53,7 @@ async function routeScreen(page: Page) {
 }
 
 test("a booting computer can be closed and keeps booting", async ({ page }, testInfo) => {
-  await signup(page, `boot-leave-${Date.now()}@rakazo.test`, "password12", "Boot Leave");
-  await completeOnboarding(page);
+  await openBotWithDedicatedComputer(page, "boot-leave");
   await routeScreen(page);
   const held: Route[] = [];
   await page.route("**/rpc/computer/boot", (route) => {
@@ -68,8 +93,7 @@ test("a booting computer can be closed and keeps booting", async ({ page }, test
 });
 
 test("a failed boot can be retried from the computer window", async ({ page }) => {
-  await signup(page, `boot-retry-${Date.now()}@rakazo.test`, "password12", "Boot Retry");
-  await completeOnboarding(page);
+  await openBotWithDedicatedComputer(page, "boot-retry");
   await page.route("https://screen.example/**", (route) =>
     route.fulfill({
       contentType: "text/html",
@@ -132,10 +156,12 @@ test("a failed boot can be retried from the computer window", async ({ page }) =
 test("starting another bot's computer is not blocked by a boot still under way", async ({
   page,
 }) => {
-  await signup(page, `boot-two-${Date.now()}@rakazo.test`, "password12", "Boot Two");
-  await completeOnboarding(page);
+  const spaceHeaders = await openBotWithDedicatedComputer(page, "boot-two");
   const first = activeBotId(page);
-  const second = await createNamedBot(page, "Bravo", { computerMode: "dedicated" });
+  const second = await createNamedBot(page, "Bravo", {
+    computerMode: "dedicated",
+    headers: spaceHeaders,
+  });
   const held: { route: Route; botId: string }[] = [];
   await page.route("**/rpc/computer/boot", (route) => {
     const body = route.request().postDataJSON() as { json?: { botId?: string } };
@@ -168,9 +194,8 @@ test("starting another bot's computer is not blocked by a boot still under way",
 });
 
 test("opening a computer refreshes a stale booting snapshot", async ({ page }, testInfo) => {
-  await signup(page, `boot-stale-${Date.now()}@rakazo.test`, "password12", "Boot Stale");
-  await completeOnboarding(page);
-  await rpc(page, "computer/boot", { botId: activeBotId(page) });
+  const staleSpaceHeaders = await openBotWithDedicatedComputer(page, "boot-stale");
+  await rpc(page, "computer/boot", { botId: activeBotId(page) }, staleSpaceHeaders);
   await routeScreen(page);
   let stale = true;
   await page.route("**/rpc/threads/get", async (route) => {
@@ -201,8 +226,7 @@ test("opening a computer refreshes a stale booting snapshot", async ({ page }, t
 test("opening a computer the server reports as booting does not start a second boot", async ({
   page,
 }) => {
-  await signup(page, `boot-server-${Date.now()}@rakazo.test`, "password12", "Boot Server");
-  await completeOnboarding(page);
+  await openBotWithDedicatedComputer(page, "boot-server");
   // Another tab or the phone started this computer; the server reports it booting.
   await page.route("**/rpc/threads/get", async (route) => {
     const response = await route.fetch();
@@ -229,13 +253,12 @@ test("opening a computer the server reports as booting does not start a second b
 });
 
 test("Retry screen clears a failed takeover on a running computer", async ({ page }) => {
-  await signup(page, `boot-takeover-${Date.now()}@rakazo.test`, "password12", "Boot Takeover");
-  await completeOnboarding(page);
+  const takeoverSpaceHeaders = await openBotWithDedicatedComputer(page, "boot-takeover");
   const botId = activeBotId(page);
-  await rpc(page, "computer/boot", { botId });
-  await expect(rpc<{ state: string }>(page, "computer/status", { botId })).resolves.toMatchObject({
-    state: "running",
-  });
+  await rpc(page, "computer/boot", { botId }, takeoverSpaceHeaders);
+  await expect(
+    rpc<{ state: string }>(page, "computer/status", { botId }, takeoverSpaceHeaders),
+  ).resolves.toMatchObject({ state: "running" });
   await routeScreen(page);
   await page.route("**/rpc/computer/takeover", (route) =>
     route.fulfill({

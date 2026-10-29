@@ -5,6 +5,7 @@ import {
   activeBotId,
   captureScreenshot,
   completeOnboarding,
+  createIsolatedSpace,
   createNamedBot,
   openUserSettings,
   rpc,
@@ -14,6 +15,10 @@ import {
 test("memory and skills are readable and editable in the app", async ({ page }, testInfo) => {
   const stamp = Date.now();
   const userName = `Knowledge ${stamp}`;
+  // Shared memory is scoped per Space; exact-content assertions need documents
+  // no other spec in the shard can touch.
+  const spaceId = await createIsolatedSpace(page, `knowledge ${stamp}`);
+  const spaceHeaders = { "x-rakazo-space-id": spaceId };
   await signup(page, `knowledge-${stamp}@rakazo.test`, "password12", userName);
   await completeOnboarding(page);
   await page.goto("/app");
@@ -28,7 +33,7 @@ test("memory and skills are readable and editable in the app", async ({ page }, 
   await expect
     .poll(
       async () =>
-        (await rpc<MemoryDocument[]>(page, "memory/list", { scope: "user" })).find(
+        (await rpc<MemoryDocument[]>(page, "memory/list", { scope: "user" }, spaceHeaders)).find(
           (doc) => doc.path === retiredPath,
         )?.content,
       { timeout: 30_000 },
@@ -77,14 +82,24 @@ test("memory and skills are readable and editable in the app", async ({ page }, 
   await memoryRow.click();
   await expect(docEditor).toHaveValue(new RegExp(marker));
   await captureScreenshot(page, testInfo, "84-space-memory-saved");
-  const sharedDocuments = await rpc<MemoryDocument[]>(page, "memory/list", { scope: "user" });
+  const sharedDocuments = await rpc<MemoryDocument[]>(
+    page,
+    "memory/list",
+    { scope: "user" },
+    spaceHeaders,
+  );
   expect(sharedDocuments).toContainEqual(
     expect.objectContaining({ content: `# Memory\n\n${marker}\n`, revision: 2 }),
   );
   // Export must fetch fresh content and exclude the bot's private document.
   const sharedDocument = sharedDocuments.find((doc) => doc.path === "MEMORY.md")!;
   const latestMarker = `Latest shared memory ${stamp}`;
-  await rpc(page, "memory/update", { documentId: sharedDocument.id, content: latestMarker });
+  await rpc(
+    page,
+    "memory/update",
+    { documentId: sharedDocument.id, content: latestMarker },
+    spaceHeaders,
+  );
   // A concurrent writer must not be overwritten by this open editor.
   await docEditor.fill("Unsaved draft");
   await spaceDocs.getByRole("button", { name: "Save", exact: true }).click();
@@ -93,7 +108,9 @@ test("memory and skills are readable and editable in the app", async ({ page }, 
   ).toBeVisible();
   await expect(docEditor).toHaveValue("Unsaved draft");
   await expect(spaceDocs.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
-  expect(await rpc<MemoryDocument[]>(page, "memory/list", { scope: "user" })).toContainEqual(
+  expect(
+    await rpc<MemoryDocument[]>(page, "memory/list", { scope: "user" }, spaceHeaders),
+  ).toContainEqual(
     expect.objectContaining({ id: sharedDocument.id, content: latestMarker, revision: 3 }),
   );
   await captureScreenshot(page, testInfo, "84-space-memory-conflict");
@@ -136,20 +153,29 @@ test("memory and skills are readable and editable in the app", async ({ page }, 
   await spaceDocs.getByRole("button", { name: "Confirm delete", exact: true }).click();
   await expect(retiredRow).toHaveCount(0);
   expect(
-    (await rpc<MemoryDocument[]>(page, "memory/list", { scope: "user" })).map((doc) => doc.path),
+    (await rpc<MemoryDocument[]>(page, "memory/list", { scope: "user" }, spaceHeaders)).map(
+      (doc) => doc.path,
+    ),
   ).not.toContain(retiredPath);
   await page.getByLabel("Close memory settings").click();
   await expect(page.getByLabel("Close memory settings")).toHaveCount(0);
 
   // Bot memory is directly available in its settings panel.
-  const seededDocs = await rpc<MemoryDocument[]>(page, "memory/list", {
-    botId: activeBotId(page),
-    scope: "bot",
-  });
-  await rpc(page, "memory/update", {
-    documentId: seededDocs[0].id,
-    content: "# Chief\n\nA remembered preference.\n",
-  });
+  const seededDocs = await rpc<MemoryDocument[]>(
+    page,
+    "memory/list",
+    { botId: activeBotId(page), scope: "bot" },
+    spaceHeaders,
+  );
+  await rpc(
+    page,
+    "memory/update",
+    {
+      documentId: seededDocs[0].id,
+      content: "# Chief\n\nA remembered preference.\n",
+    },
+    spaceHeaders,
+  );
   await page
     .locator("main")
     .getByRole("button", { name: /^Chief/ })
@@ -173,10 +199,12 @@ test("memory and skills are readable and editable in the app", async ({ page }, 
   await botMemorySaved;
   await expect(botMemory.getByText("rev 2")).toHaveCount(0);
   expect(
-    await rpc<MemoryDocument[]>(page, "memory/list", {
-      botId: activeBotId(page),
-      scope: "bot",
-    }),
+    await rpc<MemoryDocument[]>(
+      page,
+      "memory/list",
+      { botId: activeBotId(page), scope: "bot" },
+      spaceHeaders,
+    ),
   ).toContainEqual(expect.objectContaining({ content: `# Chief\n\n${botMarker}\n`, revision: 3 }));
   await botMemoryRow.click();
   await expect(botDocEditor).toHaveValue(new RegExp(botMarker));
@@ -278,9 +306,9 @@ test("memory and skills are readable and editable in the app", async ({ page }, 
   await expect(page.getByRole("button", { name: "Skill greet-politely", exact: true })).toHaveCount(
     0,
   );
-  expect(await rpc<Array<{ name: string }>>(page, "agentSkills/list", {})).not.toContainEqual(
-    expect.objectContaining({ name: "greet-politely" }),
-  );
+  expect(
+    await rpc<Array<{ name: string }>>(page, "agentSkills/list", {}, spaceHeaders),
+  ).not.toContainEqual(expect.objectContaining({ name: "greet-politely" }));
 });
 
 test("a new bot hides its untouched memory index", async ({ page }, testInfo) => {

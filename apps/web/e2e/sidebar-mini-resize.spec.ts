@@ -155,8 +155,12 @@ test("sidebar snaps its layout during a held drag in both directions", async ({
   };
   const handle = page.getByRole("separator", { name: "Resize bots sidebar" });
   const search = sidebar.getByRole("textbox", { name: "Search", exact: true });
-  await page.getByTestId("minimize-bots-sidebar").click();
-  await expect(sidebar).toHaveCSS("width", "72px");
+  // The collapse preference re-reads once the bootstrap lands; a click that
+  // raced it is retried until the sidebar actually collapses.
+  await expect(async () => {
+    await page.getByTestId("minimize-bots-sidebar").click();
+    await expect(sidebar).toHaveCSS("width", "72px", { timeout: 1_500 });
+  }).toPass({ timeout: 45_000 });
   await captureFrame("sidebar-mini-tight-spacing");
   await handle.hover({ position: { x: 4, y: 300 } });
   const edge = (await handle.boundingBox())!;

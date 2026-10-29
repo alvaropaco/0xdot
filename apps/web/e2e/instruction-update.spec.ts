@@ -1,13 +1,25 @@
 import { expect, test } from "@playwright/test";
-import { activeBotId, captureScreenshot, completeOnboarding, rpc, signup } from "./helpers";
+import {
+  activeBotId,
+  captureScreenshot,
+  completeOnboarding,
+  createIsolatedSpace,
+  rpc,
+  signup,
+} from "./helpers";
 
 test("instruction proposals support edit, approval, undo and mandatory human approval", async ({
   page,
 }, testInfo) => {
+  // Instruction history belongs to the shared onboarding bot unless the test
+  // runs in its own Space, where onboarding seeds a private first bot.
+  const spaceId = await createIsolatedSpace(page, `instructions ${Date.now()}`);
+  const spaceHeaders = { "x-rakazo-space-id": spaceId };
   await signup(page, `instruction-update-${Date.now()}@rakazo.test`, "password12", "Instructions");
   await completeOnboarding(page);
   const botId = await activeBotId(page);
-  const original = (await rpc<{ instructions: string }>(page, "bots/get", { botId })).instructions;
+  const original = (await rpc<{ instructions: string }>(page, "bots/get", { botId }, spaceHeaders))
+    .instructions;
   const composer = page.getByPlaceholder(/Message/);
   await composer.fill("propose an instruction update");
   await page.keyboard.press("Enter");
@@ -16,9 +28,9 @@ test("instruction proposals support edit, approval, undo and mandatory human app
     timeout: 30_000,
   });
   await expect(proposal.getByRole("button", { name: "Dismiss", exact: true })).toBeVisible();
-  expect((await rpc<{ instructions: string }>(page, "bots/get", { botId })).instructions).toBe(
-    original,
-  );
+  expect(
+    (await rpc<{ instructions: string }>(page, "bots/get", { botId }, spaceHeaders)).instructions,
+  ).toBe(original);
   await captureScreenshot(page, testInfo, "instructions-proposal-diff");
   await proposal.getByRole("button", { name: "Edit", exact: true }).click();
   await page
@@ -28,24 +40,24 @@ test("instruction proposals support edit, approval, undo and mandatory human app
   await expect(page.getByRole("button", { name: "Undo", exact: true })).toBeVisible({
     timeout: 30_000,
   });
-  expect((await rpc<{ instructions: string }>(page, "bots/get", { botId })).instructions).toBe(
-    "Never send. Draft only.",
-  );
+  expect(
+    (await rpc<{ instructions: string }>(page, "bots/get", { botId }, spaceHeaders)).instructions,
+  ).toBe("Never send. Draft only.");
   await captureScreenshot(page, testInfo, "instructions-updated-undo");
   await page.getByRole("button", { name: "Undo", exact: true }).click();
   await expect(page.getByRole("button", { name: "Restored", exact: true })).toBeVisible();
-  expect((await rpc<{ instructions: string }>(page, "bots/get", { botId })).instructions).toBe(
-    original,
-  );
-  await rpc(page, "bots/update", { botId, selfUpdateInstructions: true });
+  expect(
+    (await rpc<{ instructions: string }>(page, "bots/get", { botId }, spaceHeaders)).instructions,
+  ).toBe(original);
+  await rpc(page, "bots/update", { botId, selfUpdateInstructions: true }, spaceHeaders);
   await composer.fill("propose an instruction update");
   await page.keyboard.press("Enter");
   await expect(proposal.getByRole("button", { name: "Apply", exact: true })).toBeVisible({
     timeout: 30_000,
   });
-  expect((await rpc<{ instructions: string }>(page, "bots/get", { botId })).instructions).toBe(
-    original,
-  );
+  expect(
+    (await rpc<{ instructions: string }>(page, "bots/get", { botId }, spaceHeaders)).instructions,
+  ).toBe(original);
   await proposal.getByRole("button", { name: "Apply", exact: true }).click();
   await expect(page.getByRole("button", { name: "Undo", exact: true })).toBeVisible({
     timeout: 30_000,
@@ -55,14 +67,20 @@ test("instruction proposals support edit, approval, undo and mandatory human app
   await expect(page.getByRole("button", { name: "Restore", exact: true }).first()).toBeVisible();
   await captureScreenshot(page, testInfo, "instruction-settings-history");
   await page.keyboard.press("Escape");
-  const saved = (await rpc<{ instructions: string }>(page, "bots/get", { botId })).instructions;
+  const saved = (await rpc<{ instructions: string }>(page, "bots/get", { botId }, spaceHeaders))
+    .instructions;
   const instructions = page.getByRole("textbox", { name: "Instructions", exact: true });
   await instructions.fill("Unsaved draft");
-  await rpc(page, "bots/update", {
-    botId,
-    instructions: "Newer saved instructions",
-    expectedInstructions: saved,
-  });
+  await rpc(
+    page,
+    "bots/update",
+    {
+      botId,
+      instructions: "Newer saved instructions",
+      expectedInstructions: saved,
+    },
+    spaceHeaders,
+  );
   await instructions.press("Tab");
   const reload = page.getByRole("button", { name: "Reload", exact: true });
   await expect(reload).toBeVisible();
@@ -72,17 +90,27 @@ test("instruction proposals support edit, approval, undo and mandatory human app
   await captureScreenshot(page, testInfo, "instructions-conflict-reload");
   await reload.click();
   await expect(instructions).toHaveValue("Newer saved instructions");
-  const updated = await rpc<{ instructionHistory: Array<{ id: string }> }>(page, "bots/update", {
-    botId,
-    instructions: "Remote edit",
-    expectedInstructions: "Newer saved instructions",
-  });
+  const updated = await rpc<{ instructionHistory: Array<{ id: string }> }>(
+    page,
+    "bots/update",
+    {
+      botId,
+      instructions: "Remote edit",
+      expectedInstructions: "Newer saved instructions",
+    },
+    spaceHeaders,
+  );
   await expect(instructions).toHaveValue("Remote edit");
-  await rpc(page, "bots/restoreInstructions", {
-    botId,
-    versionId: updated.instructionHistory[0]?.id,
-    expectedInstructions: "Remote edit",
-    undo: true,
-  });
+  await rpc(
+    page,
+    "bots/restoreInstructions",
+    {
+      botId,
+      versionId: updated.instructionHistory[0]?.id,
+      expectedInstructions: "Remote edit",
+      undo: true,
+    },
+    spaceHeaders,
+  );
   await expect(instructions).toHaveValue("Newer saved instructions");
 });

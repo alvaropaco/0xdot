@@ -2,24 +2,29 @@ import { expect, type Page, test } from "@playwright/test";
 import {
   captureScreenshot,
   completeOnboarding,
+  createIsolatedSpace,
   createNamedBot,
   openNewGroup,
   signup,
 } from "./helpers";
 
-async function createBot(page: Page, name: string) {
-  return createNamedBot(page, name);
+async function createBot(page: Page, name: string, headers: Record<string, string>) {
+  return createNamedBot(page, name, { headers });
 }
 
 test("mention picker completes with Enter and Tab", async ({ page }, testInfo) => {
   const stamp = Date.now();
+  // Group member checkboxes match bots by name; other specs in the shard also
+  // create "Researcher", so the roster must stay in this test's own Space.
+  const spaceId = await createIsolatedSpace(page, `mention keys ${stamp}`);
+  const spaceHeaders = { "x-rakazo-space-id": spaceId };
   await signup(page, `mention-keys-${stamp}@rakazo.test`, "password12", "Mention Keys");
   await completeOnboarding(page);
   await page.goto("/app");
   await page.waitForURL(/\/app\/[^/]+$/);
 
-  const researcherId = await createBot(page, "Researcher");
-  const writerId = await createBot(page, "Research Writer");
+  const researcherId = await createBot(page, "Researcher", spaceHeaders);
+  const writerId = await createBot(page, "Research Writer", spaceHeaders);
   expect(researcherId).toBeTruthy();
   expect(writerId).toBeTruthy();
 

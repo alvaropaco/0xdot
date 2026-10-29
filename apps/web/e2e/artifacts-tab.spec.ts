@@ -1,10 +1,20 @@
 import { expect, test } from "@playwright/test";
-import { activeBotId, captureScreenshot, completeOnboarding, rpc, signup } from "./helpers";
+import {
+  activeBotId,
+  captureScreenshot,
+  completeOnboarding,
+  createIsolatedSpace,
+  rpc,
+  signup,
+} from "./helpers";
 
 test("opens Artifacts from the account menu and lists created files", async ({
   page,
 }, testInfo) => {
   const stamp = Date.now();
+  // "No artifacts found." needs a Space whose artifact list no other spec fills.
+  const spaceId = await createIsolatedSpace(page, `artifacts ${stamp}`);
+  const spaceHeaders = { "x-rakazo-space-id": spaceId };
   await signup(page, `artifacts-tab-${stamp}@rakazo.test`, "password12", "Artifacts Tab");
   await completeOnboarding(page);
   await page.goto("/app");
@@ -49,12 +59,17 @@ test("opens Artifacts from the account menu and lists created files", async ({
   expect((cardViewBox?.x ?? 0) + (cardViewBox?.width ?? 0)).toBeLessThanOrEqual(360);
   await page.setViewportSize({ width: 1280, height: 720 });
 
-  await rpc(page, "artifacts/create", {
-    botId: chiefId,
-    name: "notes/artifacts-tab.md",
-    mimeType: "text/markdown",
-    contentBase64: Buffer.from("# Artifacts tab").toString("base64"),
-  });
+  await rpc(
+    page,
+    "artifacts/create",
+    {
+      botId: chiefId,
+      name: "notes/artifacts-tab.md",
+      mimeType: "text/markdown",
+      contentBase64: Buffer.from("# Artifacts tab").toString("base64"),
+    },
+    spaceHeaders,
+  );
   await page.reload();
   await expect(page.getByRole("heading", { name: "Artifacts", exact: true })).toBeVisible();
   await expect(page.getByText("notes/artifacts-tab.md")).toBeVisible();

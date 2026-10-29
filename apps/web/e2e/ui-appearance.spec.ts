@@ -1,6 +1,6 @@
 import type { Page } from "@playwright/test";
 import { expect, test } from "@playwright/test";
-import { captureScreenshot, completeOnboarding, rpc, signup } from "./helpers";
+import { captureScreenshot, completeOnboarding, rpc, signup, spaceRoster } from "./helpers";
 
 async function captureSidebarSearchSelected(
   page: Page,
@@ -310,6 +310,10 @@ test("sidebar footer keeps the account identity readable and installs a ready de
 test("footer app marks follow the integrations overlay", async ({ page }) => {
   await signup(page, `footer-apps-${Date.now()}@rakazo.test`, "password12", "Footer Demo");
   await completeOnboarding(page);
+  // The sidebar lists every Space's roster, so its Chief rows are scoped to
+  // this test's Space before the duplicate-and-archive walk below.
+  const nav = await rpc<{ current: { id: string } }>(page, "spaces/list", {});
+  const roster = spaceRoster(page, nav.current.id);
   let connected = true;
   let listed = true;
   let failCatalog = false;
@@ -367,12 +371,12 @@ test("footer app marks follow the integrations overlay", async ({ page }) => {
   const failedRefresh = page.waitForResponse(
     (response) => response.url().includes("connections/catalog") && response.status() === 503,
   );
-  await page
+  await roster
     .getByRole("button", { name: /^Chief/ })
     .first()
     .click({ button: "right" });
   await page.getByRole("menuitem", { name: "Duplicate", exact: true }).click();
-  await expect(page.getByRole("button", { name: /^Chief copy/ }).first()).toBeVisible();
+  await expect(roster.getByRole("button", { name: /^Chief copy/ }).first()).toBeVisible();
   await failedRefresh;
   await expect(footer.locator("img")).toHaveAttribute("src", logo);
   failCatalog = false;
@@ -380,17 +384,17 @@ test("footer app marks follow the integrations overlay", async ({ page }) => {
   const failedConnections = page.waitForResponse(
     (response) => response.url().includes("connections/list") && response.status() === 503,
   );
-  await page
+  await roster
     .getByRole("button", { name: /^Chief copy/ })
     .first()
     .click({ button: "right" });
   await page.getByRole("menuitem", { name: "Duplicate", exact: true }).click();
-  await expect(page.getByRole("button", { name: /^Chief copy copy/ }).first()).toBeVisible();
+  await expect(roster.getByRole("button", { name: /^Chief copy copy/ }).first()).toBeVisible();
   await failedConnections;
   await expect(footer.locator("img")).toHaveAttribute("src", logo);
   failConnections = false;
   for (const name of [/^Chief copy copy/, /^Chief copy/, /^Chief/]) {
-    const bot = page.getByRole("button", { name }).first();
+    const bot = roster.getByRole("button", { name }).first();
     await bot.click({ button: "right" });
     await page.getByRole("menuitem", { name: "Archive", exact: true }).click();
     await expect(bot).toBeHidden();

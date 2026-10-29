@@ -5,23 +5,30 @@ import {
   activeBotId,
   captureScreenshot,
   completeOnboarding,
+  createIsolatedSpace,
   createNamedBot,
+  resetModelCredentials,
   rpc,
   signup,
+  spaceRoster,
 } from "./helpers";
 
 async function openComposer(page: Page, prefix: string) {
+  // Own Space: the shared owner thread and roster would leak routines, drafts,
+  // and identically named bots between this suite's tests.
+  const spaceId = await createIsolatedSpace(page, `${prefix} ${Date.now()}`);
+  const spaceHeaders = { "x-rakazo-space-id": spaceId };
   await signup(page, `${prefix}-${Date.now()}@rakazo.test`, "password12", "Draft Keeper");
   await completeOnboarding(page);
   const composer = page.getByRole("combobox", { name: /Message/ });
   await expect(composer).toBeVisible();
-  return composer;
+  return { composer, spaceHeaders, spaceId };
 }
 
 test("a failed send keeps the message and its attachment in the composer", async ({
   page,
 }, testInfo) => {
-  const composer = await openComposer(page, "send-failure");
+  const { composer } = await openComposer(page, "send-failure");
   await page.locator('input[type="file"]').setInputFiles({
     name: "notes.txt",
     mimeType: "text/plain",
@@ -50,7 +57,11 @@ test("a failed send keeps the message and its attachment in the composer", async
 });
 
 test("the missing-model send error opens model settings", async ({ page }, testInfo) => {
-  const composer = await openComposer(page, "send-needs-model");
+  const { composer } = await openComposer(page, "send-needs-model");
+  // A credential connected anywhere in the shard (they are user-scoped) adds
+  // enough catalog choices to flip the Model picker into its search-popover
+  // mode; this test asserts the native select, so reset the slate first.
+  await resetModelCredentials(page);
   await page.route("**/rpc/threads/send", (route) =>
     route.fulfill({
       status: 400,
@@ -85,7 +96,7 @@ test("the missing-model send error opens model settings", async ({ page }, testI
 });
 
 test("a failed send leaves a newer draft alone", async ({ page }) => {
-  const composer = await openComposer(page, "send-failure-newer");
+  const { composer } = await openComposer(page, "send-failure-newer");
   let failSend = () => {};
   const sendFailed = new Promise<void>((resolve) => {
     failSend = resolve;
@@ -105,16 +116,21 @@ test("a failed send leaves a newer draft alone", async ({ page }) => {
   await expect(composer).toHaveValue("newer draft");
 });
 
-async function createRoutine(page: Page, name: string) {
-  return rpc<Routine>(page, "routines/create", {
-    botId: activeBotId(page),
-    name,
-    prompt: "Summarize today",
-    crons: ["0 9 * * *"],
-    timezone: "UTC",
-    active: false,
-    notify: false,
-  });
+async function createRoutine(page: Page, name: string, spaceHeaders: Record<string, string>) {
+  return rpc<Routine>(
+    page,
+    "routines/create",
+    {
+      botId: activeBotId(page),
+      name,
+      prompt: "Summarize today",
+      crons: ["0 9 * * *"],
+      timezone: "UTC",
+      active: false,
+      notify: false,
+    },
+    spaceHeaders,
+  );
 }
 
 async function mentionRoutine(page: Page, composer: Locator, name: string) {
@@ -126,8 +142,8 @@ async function mentionRoutine(page: Page, composer: Locator, name: string) {
 test("a routine that already ran is not put back when the thread refresh fails", async ({
   page,
 }) => {
-  const composer = await openComposer(page, "send-failure-routine");
-  await createRoutine(page, "daily-digest");
+  const { composer, spaceHeaders } = await openComposer(page, "send-failure-routine");
+  await createRoutine(page, "daily-digest", spaceHeaders);
   await page.reload();
   await mentionRoutine(page, composer, "daily-digest");
   const chip = page.getByTestId("mention-chip");
@@ -146,9 +162,9 @@ test("a routine that already ran is not put back when the thread refresh fails",
 });
 
 test("a message is not put back when one of its routines already ran", async ({ page }) => {
-  const composer = await openComposer(page, "send-failure-routines");
-  await createRoutine(page, "daily-digest");
-  const failing = await createRoutine(page, "weekly-review");
+  const { composer, spaceHeaders } = await openComposer(page, "send-failure-routines");
+  await createRoutine(page, "daily-digest", spaceHeaders);
+  const failing = await createRoutine(page, "weekly-review", spaceHeaders);
   await page.reload();
   await mentionRoutine(page, composer, "daily-digest");
   await mentionRoutine(page, composer, "weekly-review");
@@ -176,16 +192,24 @@ for (const target of ["bot", "group"] as const) {
   test(`an unchanged ${target} retry after a lost response creates only one message`, async ({
     page,
   }) => {
-    const composer = await openComposer(page, `send-lost-${target}`);
+    const { composer, spaceHeaders } = await openComposer(page, `send-lost-${target}`);
     const botId = activeBotId(page);
     const threadTarget =
       target === "group"
         ? {
             groupId: (
-              await rpc<{ id: string }>(page, "groups/create", {
-                name: "Retry team",
-                botIds: [botId, await createNamedBot(page, "Retry peer")],
-              })
+              await rpc<{ id: string }>(
+                page,
+                "groups/create",
+                {
+                  name: "Retry team",
+                  botIds: [
+                    botId,
+                    await createNamedBot(page, "Retry peer", { headers: spaceHeaders }),
+                  ],
+                },
+                spaceHeaders,
+              )
             ).id,
           }
         : { botId };
@@ -216,7 +240,12 @@ for (const target of ["bot", "group"] as const) {
     expect(nonces).toHaveLength(2);
     expect(nonces[1]).toBe(nonces[0]);
     expect(receipts[1]).toEqual(receipts[0]);
-    const snapshot = await rpc<{ messages: ThreadMessage[] }>(page, "threads/get", threadTarget);
+    const snapshot = await rpc<{ messages: ThreadMessage[] }>(
+      page,
+      "threads/get",
+      threadTarget,
+      spaceHeaders,
+    );
     expect(
       snapshot.messages.filter(
         (message) =>
@@ -230,8 +259,8 @@ for (const target of ["bot", "group"] as const) {
 }
 
 test("an unchanged routine retry after a lost response reuses the run", async ({ page }) => {
-  const composer = await openComposer(page, "send-lost-routine");
-  await createRoutine(page, "daily-digest");
+  const { composer, spaceHeaders } = await openComposer(page, "send-lost-routine");
+  await createRoutine(page, "daily-digest", spaceHeaders);
   await page.reload();
   await mentionRoutine(page, composer, "daily-digest");
   const nonces: string[] = [];
@@ -260,9 +289,9 @@ test("an unchanged routine retry after a lost response reuses the run", async ({
 });
 
 test("an accepted send clears recovered text after returning to the thread", async ({ page }) => {
-  await openComposer(page, "pending-return");
-  await createNamedBot(page, "Other thread");
-  const sidebar = page.locator("aside").first();
+  const { spaceHeaders, spaceId } = await openComposer(page, "pending-return");
+  await createNamedBot(page, "Other thread", { headers: spaceHeaders });
+  const sidebar = spaceRoster(page, spaceId);
   await sidebar.getByRole("button", { name: /^Chief/ }).click();
   const composer = page.getByRole("combobox", { name: "Message Chief", exact: true });
   let releaseSend = () => {};

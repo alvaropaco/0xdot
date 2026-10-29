@@ -9,7 +9,10 @@ test("integration authorization closes its popup without loading the app", async
   });
   const popup = await popupOpened;
   await expect.poll(() => popup.isClosed()).toBe(true);
-  expect(new URL(page.url()).pathname).toBe("/");
+  // The shell redirects "/" into the app on every load now there is no account
+  // gate. The authorization popup must only close itself, never pull the
+  // opener into the callback route.
+  expect(new URL(page.url()).pathname).not.toBe("/integrations/callback");
 });
 
 test("a callback that cannot close shows only the close-window fallback", async ({

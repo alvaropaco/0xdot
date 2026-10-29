@@ -3,29 +3,44 @@ import {
   activeBotId,
   captureScreenshot,
   completeOnboarding,
+  createIsolatedSpace,
   openUserSettings,
   rpc,
   signup,
+  spaceRoster,
 } from "./helpers";
+
+/**
+ * A test's own Space keeps its roster, sections, and groups out of other
+ * specs'; group keys carry the Space id once the sidebar lists more than one.
+ */
+function spaceGroup(page: import("@playwright/test").Page, spaceId: string, key: string) {
+  return page.locator(`[data-sidebar-group="space:${spaceId}:${key}"]`);
+}
+
+function spaceSectionGroups(page: import("@playwright/test").Page, spaceId: string) {
+  return page.locator(`[data-sidebar-group^="space:${spaceId}:section:"]`);
+}
 
 test("pinned bots and sidebar sections persist", async ({ page }, testInfo) => {
   const stamp = Date.now();
+  const spaceId = await createIsolatedSpace(page, `bot organize ${stamp}`);
   await signup(page, `bot-organize-${stamp}@rakazo.test`, "password12", "Test User");
   await completeOnboarding(page);
   await page.goto("/app");
   await page.waitForURL(/\/app\/[^/]+$/);
 
-  const sidebar = page.locator("aside").first();
+  const sidebar = spaceRoster(page, spaceId);
   const bot = sidebar.getByRole("button", { name: /^Chief/ });
 
   await bot.click({ button: "right" });
   await page.getByRole("menuitem", { name: "Pin", exact: true }).click();
-  await expect(sidebar.locator('[data-sidebar-group="pinned"]')).toContainText("Chief");
+  await expect(spaceGroup(page, spaceId, "pinned")).toContainText("Chief");
   await captureScreenshot(page, testInfo, "pinned-bots");
 
   await bot.click({ button: "right" });
   await page.getByRole("menuitem", { name: "Unpin", exact: true }).click();
-  await expect(sidebar.locator('[data-sidebar-group="pinned"]')).toHaveCount(0);
+  await expect(spaceGroup(page, spaceId, "pinned")).toHaveCount(0);
 
   await bot.click({ button: "right" });
   await page.getByRole("menuitem", { name: "Move to", exact: true }).hover();
@@ -37,7 +52,7 @@ test("pinned bots and sidebar sections persist", async ({ page }, testInfo) => {
   await dialog.getByLabel("Name").fill("Projects");
   await dialog.getByRole("button", { name: "Create" }).click();
 
-  const projects = sidebar.locator('[data-sidebar-group^="section:"]');
+  const projects = spaceSectionGroups(page, spaceId);
   await expect(projects).toContainText("Projects");
   await expect(projects).toContainText("Chief");
   await captureScreenshot(page, testInfo, "bot-sections");
@@ -65,33 +80,41 @@ test("pinned bots and sidebar sections persist", async ({ page }, testInfo) => {
     .getByRole("menu", { name: "Move to", exact: true })
     .getByRole("menuitem", { name: "Unassigned", exact: true })
     .click();
-  await expect(sidebar.locator('[data-sidebar-group="unassigned"]')).toContainText("Chief");
+  await expect(spaceGroup(page, spaceId, "unassigned")).toContainText("Chief");
 });
 
 test("deleting a section keeps its bots and groups", async ({ page }, testInfo) => {
+  const spaceId = await createIsolatedSpace(page, `section delete ${Date.now()}`);
+  const spaceHeaders = { "x-rakazo-space-id": spaceId };
   await signup(page, `section-delete-${Date.now()}@rakazo.test`, "password12", "Section Delete");
   await completeOnboarding(page);
   const chiefId = activeBotId(page);
-  const alpha = await rpc<{ id: string }>(page, "bots/create", {
-    name: "Alpha",
-    computerMode: "team",
-  });
-  const section = await rpc<{ id: string }>(page, "botSections/create", {
-    botId: alpha.id,
-    name: "Projects",
-  });
-  await rpc(page, "bots/update", { botId: chiefId, sectionId: section.id });
-  const group = await rpc<{ id: string }>(page, "groups/create", {
-    name: "Review room",
-    botIds: [chiefId, alpha.id],
-  });
-  await rpc(page, "groups/update", { groupId: group.id, sectionId: section.id });
+  const alpha = await rpc<{ id: string }>(
+    page,
+    "bots/create",
+    { name: "Alpha", computerMode: "team" },
+    spaceHeaders,
+  );
+  const section = await rpc<{ id: string }>(
+    page,
+    "botSections/create",
+    { botId: alpha.id, name: "Projects" },
+    spaceHeaders,
+  );
+  await rpc(page, "bots/update", { botId: chiefId, sectionId: section.id }, spaceHeaders);
+  const group = await rpc<{ id: string }>(
+    page,
+    "groups/create",
+    { name: "Review room", botIds: [chiefId, alpha.id] },
+    spaceHeaders,
+  );
+  await rpc(page, "groups/update", { groupId: group.id, sectionId: section.id }, spaceHeaders);
   await page.reload();
 
-  const sidebar = page.locator("aside").first();
-  const sectionRows = sidebar.locator(`[data-sidebar-group="section:${section.id}"]`);
+  const sidebar = spaceRoster(page, spaceId);
+  const sectionRows = spaceGroup(page, spaceId, `section:${section.id}`);
   await sectionRows
-    .getByRole("button", { name: "Collapse Projects", exact: true })
+    .getByRole("button", { name: /(?:Collapse|Expand) .*Projects/ })
     .click({ button: "right" });
   await page
     .getByRole("menu", { name: "Actions for Projects" })
@@ -111,19 +134,23 @@ test("deleting a section keeps its bots and groups", async ({ page }, testInfo) 
 });
 
 test("an empty section can be deleted after its last bot leaves", async ({ page }, testInfo) => {
+  const spaceId = await createIsolatedSpace(page, `empty section ${Date.now()}`);
+  const spaceHeaders = { "x-rakazo-space-id": spaceId };
   await signup(page, `empty-section-${Date.now()}@rakazo.test`, "password12", "Empty Section");
   await completeOnboarding(page);
   const botId = activeBotId(page);
-  const section = await rpc<{ id: string }>(page, "botSections/create", {
-    botId,
-    name: "Old ideas",
-  });
-  await rpc(page, "bots/update", { botId, sectionId: null });
+  const section = await rpc<{ id: string }>(
+    page,
+    "botSections/create",
+    { botId, name: "Old ideas" },
+    spaceHeaders,
+  );
+  await rpc(page, "bots/update", { botId, sectionId: null }, spaceHeaders);
   await page.reload();
-  const sidebar = page.locator("aside").first();
-  const heading = sidebar.locator(`[data-sidebar-group="section:${section.id}"]`);
+  const sidebar = spaceRoster(page, spaceId);
+  const heading = spaceGroup(page, spaceId, `section:${section.id}`);
   await heading
-    .getByRole("button", { name: "Collapse Old ideas", exact: true })
+    .getByRole("button", { name: /(?:Collapse|Expand) .*Old ideas/ })
     .click({ button: "right" });
   await page.getByRole("menuitem", { name: "Delete section", exact: true }).click();
   const dialog = page.getByRole("alertdialog", { name: "Delete Old ideas?" });
@@ -135,31 +162,44 @@ test("an empty section can be deleted after its last bot leaves", async ({ page 
 
 test("bots can be reordered by drag or keyboard and keep that order", async ({ page }) => {
   const stamp = Date.now();
+  // Order assertions must see only this Space's roster.
+  const spaceId = await createIsolatedSpace(page, `bot reorder ${stamp}`);
+  const spaceHeaders = { "x-rakazo-space-id": spaceId };
   await signup(page, `bot-reorder-${stamp}@rakazo.test`, "password12", "Bot Order");
   await completeOnboarding(page);
   await page.goto("/app");
   await page.waitForURL(/\/app\/[^/]+$/);
 
   const chiefId = activeBotId(page);
-  const alpha = await rpc<{ id: string }>(page, "bots/create", {
-    name: "Alpha",
-    title: "",
-    description: "",
-    instructions: "",
-    notifyOnFinish: true,
-    computerMode: "team",
-  });
-  const beta = await rpc<{ id: string }>(page, "bots/create", {
-    name: "Beta",
-    title: "",
-    description: "",
-    instructions: "",
-    notifyOnFinish: true,
-    computerMode: "team",
-  });
+  const alpha = await rpc<{ id: string }>(
+    page,
+    "bots/create",
+    {
+      name: "Alpha",
+      title: "",
+      description: "",
+      instructions: "",
+      notifyOnFinish: true,
+      computerMode: "team",
+    },
+    spaceHeaders,
+  );
+  const beta = await rpc<{ id: string }>(
+    page,
+    "bots/create",
+    {
+      name: "Beta",
+      title: "",
+      description: "",
+      instructions: "",
+      notifyOnFinish: true,
+      computerMode: "team",
+    },
+    spaceHeaders,
+  );
   await page.reload();
 
-  const sidebar = page.locator("aside").first();
+  const sidebar = spaceRoster(page, spaceId);
   const rows = sidebar.locator("[data-roster-bot-id]");
   const order = () =>
     rows.evaluateAll((items) => items.map((item) => item.getAttribute("data-roster-bot-id")));
@@ -321,27 +361,36 @@ test("chat composer controls are vertically centered", async ({ page }, testInfo
 
 test("group chats share every context-menu action", async ({ page }, testInfo) => {
   const stamp = Date.now();
+  const spaceId = await createIsolatedSpace(page, `group menu ${stamp}`);
+  const spaceHeaders = { "x-rakazo-space-id": spaceId };
   await signup(page, `group-organize-${stamp}@rakazo.test`, "password12", "Group Menu");
   await completeOnboarding(page);
   await page.goto("/app");
   await page.waitForURL(/\/app\/[^/]+$/);
 
   const chiefId = activeBotId(page);
-  const partner = await rpc<{ id: string }>(page, "bots/create", {
-    name: "Partner",
-    title: "",
-    description: "",
-    instructions: "",
-    notifyOnFinish: true,
-    computerMode: "team",
-  });
-  await rpc(page, "groups/create", {
-    name: "Group menu",
-    botIds: [chiefId, partner.id],
-  });
+  const partner = await rpc<{ id: string }>(
+    page,
+    "bots/create",
+    {
+      name: "Partner",
+      title: "",
+      description: "",
+      instructions: "",
+      notifyOnFinish: true,
+      computerMode: "team",
+    },
+    spaceHeaders,
+  );
+  await rpc(
+    page,
+    "groups/create",
+    { name: "Group menu", botIds: [chiefId, partner.id] },
+    spaceHeaders,
+  );
   await page.reload();
 
-  const sidebar = page.locator("aside").first();
+  const sidebar = spaceRoster(page, spaceId);
   const group = sidebar.getByRole("button", { name: /^Group menu/ });
   await group.click({ button: "right" });
   for (const action of [
@@ -364,7 +413,7 @@ test("group chats share every context-menu action", async ({ page }, testInfo) =
 
   await group.click({ button: "right" });
   await page.getByRole("menuitem", { name: "Pin", exact: true }).click();
-  await expect(sidebar.locator('[data-sidebar-group="pinned"]')).toContainText("Group menu");
+  await expect(spaceGroup(page, spaceId, "pinned")).toContainText("Group menu");
 
   await group.click({ button: "right" });
   await page.getByRole("menuitem", { name: "Unpin", exact: true }).click();
@@ -377,7 +426,7 @@ test("group chats share every context-menu action", async ({ page }, testInfo) =
   const sectionDialog = page.getByRole("dialog", { name: "New section" });
   await sectionDialog.getByLabel("Name").fill("Teams");
   await sectionDialog.getByRole("button", { name: "Create" }).click();
-  await expect(sidebar.locator('[data-sidebar-group^="section:"]')).toContainText("Group menu");
+  await expect(spaceSectionGroups(page, spaceId)).toContainText("Group menu");
 
   await group.click({ button: "right" });
   await page.getByRole("menuitem", { name: "Clear conversation", exact: true }).click();
@@ -403,7 +452,8 @@ test("group chats share every context-menu action", async ({ page }, testInfo) =
   await copy.click({ button: "right" });
   await page.getByRole("menuitem", { name: "Archive", exact: true }).click();
   await expect(sidebar.getByRole("button", { name: /^Group menu copy/ })).toHaveCount(0);
-  await expect(sidebar.getByText("Archived", { exact: true })).toBeVisible();
+  // The Archived fold-out is not a roster group; it sits directly in the aside.
+  await expect(page.locator("aside").first().getByText("Archived", { exact: true })).toBeVisible();
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole("button", { name: "Open navigation" }).click();
@@ -420,9 +470,10 @@ test("group chats share every context-menu action", async ({ page }, testInfo) =
 test("built-in sidebar headings follow the language without renaming custom sections", async ({
   page,
 }, testInfo) => {
+  const localeSpaceId = await createIsolatedSpace(page, `section locale ${Date.now()}`);
   await signup(page, `section-locale-${Date.now()}@rakazo.test`, "password12", "Locale QA");
   await completeOnboarding(page);
-  const sidebar = page.locator("aside").first();
+  const sidebar = spaceRoster(page, localeSpaceId);
   const bot = sidebar.getByRole("button", { name: /^Chief/ });
   await bot.click({ button: "right" });
   await page.getByRole("menuitem", { name: "Move to", exact: true }).hover();
@@ -437,10 +488,8 @@ test("built-in sidebar headings follow the language without renaming custom sect
   await page.getByRole("option", { name: "Deutsch", exact: true }).click();
   await page.getByRole("button", { name: "Benutzereinstellungen schließen", exact: true }).click();
   await expect(settings).not.toBeVisible();
-  await expect(sidebar.locator('[data-sidebar-group="pinned"]')).toContainText("Angeheftet");
-  await expect(sidebar.locator('[data-sidebar-group="unassigned"]')).toContainText(
-    "Nicht zugewiesen",
-  );
-  await expect(sidebar.locator('[data-sidebar-group^="section:"]')).toContainText("Pinned");
+  await expect(spaceGroup(page, localeSpaceId, "pinned")).toContainText("Angeheftet");
+  await expect(spaceGroup(page, localeSpaceId, "unassigned")).toContainText("Nicht zugewiesen");
+  await expect(spaceSectionGroups(page, localeSpaceId)).toContainText("Pinned");
   await captureScreenshot(page, testInfo, "localized-sidebar-headings-de");
 });

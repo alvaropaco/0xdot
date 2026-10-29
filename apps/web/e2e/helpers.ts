@@ -216,19 +216,46 @@ export async function openUserSettings(
   return settings;
 }
 
+/**
+ * Sidebar roster groups for one Space. Once the sidebar lists more than one
+ * Space (isolated-Space specs always see the owner's default Space too), group
+ * keys are prefixed with `space:<id>:`; with a single Space they stay plain.
+ * Scope name queries to these groups so another Space's identically named bot
+ * cannot strict-mode the locator.
+ */
+export function spaceRoster(page: Page, spaceId: string) {
+  return page
+    .locator("aside")
+    .first()
+    .locator(
+      [
+        `[data-sidebar-group="space:${spaceId}"]`,
+        `[data-sidebar-group^="space:${spaceId}:"]`,
+        `[data-sidebar-group="unassigned"]`,
+        `[data-sidebar-group="pinned"]`,
+        `[data-sidebar-group^="section:"]`,
+      ].join(", "),
+    );
+}
+
 /** Create a named bot via RPC for test setup (skips the + picker). */
 export async function createNamedBot(
   page: Page,
   name: string,
-  options: { computerMode?: "team" | "dedicated" } = {},
+  options: { computerMode?: "team" | "dedicated"; headers?: Record<string, string> } = {},
 ) {
-  const bot = await rpc<{ id: string; name: string }>(page, "bots/create", {
-    name,
-    title: "",
-    description: "",
-    notifyOnFinish: true,
-    computerMode: options.computerMode ?? "team",
-  });
+  const bot = await rpc<{ id: string; name: string }>(
+    page,
+    "bots/create",
+    {
+      name,
+      title: "",
+      description: "",
+      notifyOnFinish: true,
+      computerMode: options.computerMode ?? "team",
+    },
+    options.headers,
+  );
   await page.goto(`/app/${bot.id}`);
   await expect(page.getByPlaceholder(`Message ${name}`)).toBeVisible();
   return bot.id;

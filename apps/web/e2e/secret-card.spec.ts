@@ -1,10 +1,21 @@
 import { expect, test } from "@playwright/test";
-import { activeBotId, captureScreenshot, completeOnboarding, rpc, signup } from "./helpers";
+import {
+  activeBotId,
+  captureScreenshot,
+  completeOnboarding,
+  createIsolatedSpace,
+  rpc,
+  signup,
+} from "./helpers";
 
 test("renders masked secret card and saves without putting the value in chat", async ({
   page,
 }, testInfo) => {
   const stamp = Date.now();
+  // The ask-card run lives on this Space's thread alone; the shared owner
+  // thread's run queue can starve the waiting_input transition.
+  const spaceId = await createIsolatedSpace(page, `secret card ${stamp}`);
+  const spaceHeaders = { "x-rakazo-space-id": spaceId };
   await signup(page, `secret-card-${stamp}@rakazo.test`, "password12", "Secret Card");
   await completeOnboarding(page);
 
@@ -16,9 +27,12 @@ test("renders masked secret card and saves without putting the value in chat", a
   await expect
     .poll(
       async () => {
-        const snapshot = await rpc<{ run?: { status: string } | null }>(page, "threads/get", {
-          botId,
-        });
+        const snapshot = await rpc<{ run?: { status: string } | null }>(
+          page,
+          "threads/get",
+          { botId },
+          spaceHeaders,
+        );
         return snapshot.run?.status ?? null;
       },
       { timeout: 60_000 },
@@ -93,7 +107,7 @@ test("renders masked secret card and saves without putting the value in chat", a
               detail?: string;
             }>;
           }>;
-        }>(page, "threads/messages", { botId });
+        }>(page, "threads/messages", { botId }, spaceHeaders);
         const answered = history.messages
           .flatMap((message) => message.blocks)
           .find(
@@ -113,15 +127,18 @@ test("renders masked secret card and saves without putting the value in chat", a
   await expect
     .poll(
       async () => {
-        const snapshot = await rpc<{ run?: { status: string } | null }>(page, "threads/get", {
-          botId,
-        });
+        const snapshot = await rpc<{ run?: { status: string } | null }>(
+          page,
+          "threads/get",
+          { botId },
+          spaceHeaders,
+        );
         return snapshot.run?.status ?? "completed";
       },
       { timeout: 30_000 },
     )
     .toBe("completed");
-  const history = await rpc(page, "threads/messages", { botId });
+  const history = await rpc(page, "threads/messages", { botId }, spaceHeaders);
   expect(JSON.stringify(history)).not.toContain(secretValue);
   await page.reload({ waitUntil: "domcontentloaded" });
   await expect(card.getByText("Saved", { exact: true })).toBeVisible();
@@ -134,6 +151,8 @@ test("dismisses a secret card, resumes the bot and frees the composer", async ({
   page,
 }, testInfo) => {
   const stamp = Date.now();
+  const spaceId = await createIsolatedSpace(page, `secret dismiss ${stamp}`);
+  const spaceHeaders = { "x-rakazo-space-id": spaceId };
   await signup(page, `secret-dismiss-${stamp}@rakazo.test`, "password12", "Secret Dismiss");
   await completeOnboarding(page);
 
@@ -145,9 +164,12 @@ test("dismisses a secret card, resumes the bot and frees the composer", async ({
   await expect
     .poll(
       async () => {
-        const snapshot = await rpc<{ run?: { status: string } | null }>(page, "threads/get", {
-          botId,
-        });
+        const snapshot = await rpc<{ run?: { status: string } | null }>(
+          page,
+          "threads/get",
+          { botId },
+          spaceHeaders,
+        );
         return snapshot.run?.status ?? null;
       },
       { timeout: 60_000 },
@@ -169,15 +191,18 @@ test("dismisses a secret card, resumes the bot and frees the composer", async ({
   await expect
     .poll(
       async () => {
-        const snapshot = await rpc<{ run?: { status: string } | null }>(page, "threads/get", {
-          botId,
-        });
+        const snapshot = await rpc<{ run?: { status: string } | null }>(
+          page,
+          "threads/get",
+          { botId },
+          spaceHeaders,
+        );
         return snapshot.run?.status ?? "completed";
       },
       { timeout: 30_000 },
     )
     .toBe("completed");
-  const history = await rpc(page, "threads/messages", { botId });
+  const history = await rpc(page, "threads/messages", { botId }, spaceHeaders);
   expect(JSON.stringify(history)).not.toContain(typedValue);
   await captureScreenshot(page, testInfo, "secret-card-dismissed");
 

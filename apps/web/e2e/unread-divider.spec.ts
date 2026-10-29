@@ -3,6 +3,7 @@ import {
   activeBotId,
   captureScreenshot,
   completeOnboarding,
+  createIsolatedSpace,
   createNamedBot,
   rpc,
   signup,
@@ -12,17 +13,21 @@ test("a chat opens with a New divider above replies that arrived while away", as
   page,
 }, testInfo) => {
   const stamp = Date.now();
+  // Unread state is per thread; concurrent specs focusing the shared owner
+  // thread would mark it read and erase the divider under test.
+  const spaceId = await createIsolatedSpace(page, `unread divider ${stamp}`);
+  const spaceHeaders = { "x-rakazo-space-id": spaceId };
   await signup(page, `unread-divider-${stamp}@rakazo.test`, "password12", "Unread Divider");
   await completeOnboarding(page);
   await page.goto("/app");
   await page.waitForURL(/\/app\/[^/]+$/);
   await expect(page.getByTestId("unread-divider")).toHaveCount(0);
   const chiefId = activeBotId(page);
-  const otherId = await createNamedBot(page, "Elsewhere");
+  const otherId = await createNamedBot(page, "Elsewhere", { headers: spaceHeaders });
 
   // Chief answers while the user is in another chat.
   const question = "Plan my week";
-  await rpc(page, "threads/send", { botId: chiefId, text: question });
+  await rpc(page, "threads/send", { botId: chiefId, text: question }, spaceHeaders);
   await expect
     .poll(
       async () => {
@@ -30,6 +35,7 @@ test("a chat opens with a New divider above replies that arrived while away", as
           page,
           "bots/list",
           {},
+          spaceHeaders,
         );
         const chief = bots.find((bot) => bot.id === chiefId);
         return chief?.unread === true && !["queued", "leased", "running"].includes(chief.status);
@@ -72,14 +78,16 @@ test("a late read answer from a chat you left doesn't remove the divider in the 
   page,
 }) => {
   const stamp = Date.now();
+  const spaceId = await createIsolatedSpace(page, `unread late ${stamp}`);
+  const spaceHeaders = { "x-rakazo-space-id": spaceId };
   await signup(page, `unread-late-${stamp}@rakazo.test`, "password12", "Unread Late");
   await completeOnboarding(page);
   await page.goto("/app");
   await page.waitForURL(/\/app\/[^/]+$/);
   const chiefId = activeBotId(page);
-  const otherId = await createNamedBot(page, "Elsewhere");
+  const otherId = await createNamedBot(page, "Elsewhere", { headers: spaceHeaders });
 
-  await rpc(page, "threads/send", { botId: chiefId, text: `Plan the week ${stamp}` });
+  await rpc(page, "threads/send", { botId: chiefId, text: `Plan the week ${stamp}` }, spaceHeaders);
   await expect
     .poll(
       async () => {
@@ -87,6 +95,7 @@ test("a late read answer from a chat you left doesn't remove the divider in the 
           page,
           "bots/list",
           {},
+          spaceHeaders,
         );
         const chief = bots.find((bot) => bot.id === chiefId);
         return chief?.unread === true && !["queued", "leased", "running"].includes(chief.status);
@@ -129,17 +138,24 @@ test("marking a message unread brings the chat back with New above the reply fro
   page,
 }, testInfo) => {
   const stamp = Date.now();
+  const spaceId = await createIsolatedSpace(page, `unread message ${stamp}`);
+  const spaceHeaders = { "x-rakazo-space-id": spaceId };
   await signup(page, `unread-message-${stamp}@rakazo.test`, "password12", "Unread Message");
   await completeOnboarding(page);
   await page.goto("/app");
   await page.waitForURL(/\/app\/[^/]+$/);
   const chiefId = activeBotId(page);
-  const otherId = await createNamedBot(page, "Elsewhere");
+  const otherId = await createNamedBot(page, "Elsewhere", { headers: spaceHeaders });
   const settled = async () =>
     expect
       .poll(
         async () => {
-          const bots = await rpc<Array<{ id: string; status: string }>>(page, "bots/list", {});
+          const bots = await rpc<Array<{ id: string; status: string }>>(
+            page,
+            "bots/list",
+            {},
+            spaceHeaders,
+          );
           const chief = bots.find((bot) => bot.id === chiefId);
           return Boolean(chief && !["queued", "leased", "running"].includes(chief.status));
         },
@@ -148,9 +164,9 @@ test("marking a message unread brings the chat back with New above the reply fro
       .toBe(true);
   const first = `First question ${stamp}`;
   const second = `Second question ${stamp}`;
-  await rpc(page, "threads/send", { botId: chiefId, text: first });
+  await rpc(page, "threads/send", { botId: chiefId, text: first }, spaceHeaders);
   await settled();
-  await rpc(page, "threads/send", { botId: chiefId, text: second });
+  await rpc(page, "threads/send", { botId: chiefId, text: second }, spaceHeaders);
   await settled();
 
   // Read everything, then mark the first reply unread from its menu.

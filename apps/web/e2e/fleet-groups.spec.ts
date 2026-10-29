@@ -1,16 +1,32 @@
 import { expect, test } from "@playwright/test";
-import { activeBotId, captureScreenshot, completeOnboarding, rpc, signup } from "./helpers";
+import {
+  activeBotId,
+  captureScreenshot,
+  completeOnboarding,
+  createIsolatedSpace,
+  rpc,
+  signup,
+} from "./helpers";
 
 test("a group a bot creates after approval appears in the sidebar without a reload", async ({
   page,
 }, testInfo) => {
+  // Approval rules live per Space; an earlier spec's always-allow would skip
+  // the approval card this test exists to exercise.
+  const spaceId = await createIsolatedSpace(page, `fleet-groups ${Date.now()}`);
+  const spaceHeaders = { "x-rakazo-space-id": spaceId };
   await signup(page, `bot-management-groups-${Date.now()}@rakazo.test`, "password12", "Bot Groups");
   await completeOnboarding(page);
   await page.waitForURL(/\/app\/[^/]+$/);
   const chiefId = activeBotId(page);
-  await rpc(page, "bots/update", { botId: chiefId, fleetManagement: true });
+  await rpc(page, "bots/update", { botId: chiefId, fleetManagement: true }, spaceHeaders);
   for (const name of ["Alpha", "Beta"]) {
-    await rpc(page, "bots/create", { name, title: "", description: "", notifyOnFinish: true });
+    await rpc(
+      page,
+      "bots/create",
+      { name, title: "", description: "", notifyOnFinish: true },
+      spaceHeaders,
+    );
   }
 
   const sidebar = page.locator("aside").first();
@@ -51,31 +67,43 @@ test("a group a bot creates after approval appears in the sidebar without a relo
 test("model approvals use catalog labels and fit wide and narrow chats", async ({
   page,
 }, testInfo) => {
+  const modelSpaceId = await createIsolatedSpace(page, `fleet-model ${Date.now()}`);
+  const spaceHeaders = { "x-rakazo-space-id": modelSpaceId };
   await signup(page, `bot-management-model-${Date.now()}@rakazo.test`, "password12", "Bot Models");
   await completeOnboarding(page);
   await page.waitForURL(/\/app\/[^/]+$/);
   const chiefId = activeBotId(page);
-  await rpc(page, "bots/update", { botId: chiefId, fleetManagement: true });
+  await rpc(page, "bots/update", { botId: chiefId, fleetManagement: true }, spaceHeaders);
   const composer = page.getByPlaceholder("Message Chief");
   await composer.fill("spawn a bot named Scout to research venues");
   await page.keyboard.press("Enter");
   await expect(page.locator("[data-roster-bot-name]").filter({ hasText: /^Scout$/ })).toBeVisible({
     timeout: 30_000,
   });
-  const bots = await rpc<Array<{ id: string; name: string }>>(page, "bots/list", {});
+  const bots = await rpc<Array<{ id: string; name: string }>>(page, "bots/list", {}, spaceHeaders);
   const scout = bots.find((bot) => bot.name === "Scout");
   if (!scout) throw new Error("Missing child bot");
-  await rpc(page, "models/connect", {
-    provider: "openai",
-    apiKey: "test-key-not-a-real-secret",
-    label: "Test",
-    modelId: "gpt-6-sol",
-  });
-  await rpc(page, "bots/update", {
-    botId: scout.id,
-    modelProvider: "openai",
-    modelId: "gpt-6-sol",
-  });
+  await rpc(
+    page,
+    "models/connect",
+    {
+      provider: "openai",
+      apiKey: "test-key-not-a-real-secret",
+      label: "Test",
+      modelId: "gpt-6-sol",
+    },
+    spaceHeaders,
+  );
+  await rpc(
+    page,
+    "bots/update",
+    {
+      botId: scout.id,
+      modelProvider: "openai",
+      modelId: "gpt-6-sol",
+    },
+    spaceHeaders,
+  );
   await expect(composer).toBeEnabled();
   await composer.fill(`set the model of bot ${scout.id} to openai/gpt-6-luna`);
   await page.keyboard.press("Enter");
