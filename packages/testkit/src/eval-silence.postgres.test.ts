@@ -171,6 +171,8 @@ describe.skipIf(!databaseAvailable)("routine silence eval through the product", 
                 composio,
                 messaging,
                 encryptionKey: "offline-silence-encryption-key-32-characters",
+                // The scripted model fixture listens on loopback.
+                mcpAllowPrivateEndpoint: true,
               }),
           },
         );

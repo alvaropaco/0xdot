@@ -26,9 +26,10 @@ it.skipIf(!databaseUrl)(
       ({ spaceId } = await runAsSystem("local capability fixture", () =>
         bootstrapUserSpace(db.prisma, { id: userId }),
       ));
-      await system.deploymentSettings.update({
+      await system.deploymentSettings.upsert({
         where: { id: "default" },
-        data: { ownerUserId: userId },
+        create: { id: "default", ownerUserId: userId },
+        update: { ownerUserId: userId },
       });
       const app = new Hono();
       mountLocalComputerHost(app, { token, sandboxProvider: "docker", prisma: db.prisma });

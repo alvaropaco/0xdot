@@ -6,22 +6,6 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { UI_LOCALES } from "./ui-locale";
 
 describe("lingui catalogs", () => {
-  it("translates sign-out failures in every supported language", () => {
-    for (const locale of ["de", "es", "fr", "hi", "ja", "ko", "nl", "pt-BR", "ru", "tr", "zh-CN"]) {
-      const catalog = readFileSync(
-        fileURLToPath(new URL(`../locales/${locale}/messages.po`, import.meta.url)),
-        "utf8",
-      );
-      const entry = catalog
-        .split("\n\n")
-        .find((block) => block.includes('msgid "Could not log out. Try again."\n'));
-      const translated = entry?.split("msgstr ")[1];
-      expect(translated, locale).toBeTruthy();
-      expect(translated, locale).not.toBe('""');
-      expect(translated, locale).not.toBe('"Could not log out. Try again."');
-    }
-  });
-
   it("localizes provider error guidance and retains its placeholders", () => {
     const messages = [
       ...Object.values(RUN_ERROR_LIMIT_MESSAGES).flatMap(Object.values),

@@ -10,7 +10,7 @@ import {
   ThirdPartyConnectorEmulator,
 } from "@rakazo/adapters";
 import { listSpaceBackupModels, replaceSpaceBackupModels, runAsSystem } from "@rakazo/db";
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { createApp } from "../../../apps/api/src/app.ts";
 import { OWNER_COOKIE } from "./index.js";
 import { asSystem } from "./system-db.js";
@@ -18,6 +18,10 @@ import { asSystem } from "./system-db.js";
 type App = { request: (input: string, init?: RequestInit) => Promise<Response> };
 type AppHandles = Awaited<ReturnType<typeof createApp>>;
 type Actor = { spaceId: string; userId: string };
+/** A scope of the single deployment owner bound to one Space, with an RPC
+ *  caller that targets it. Suites run against a shared database, so tests work
+ *  in fresh Spaces (per run, plus ad-hoc second scopes) instead of user scopes. */
+type Scope = Actor & { rpc: <T>(procedure: string, body?: unknown) => Promise<T> };
 
 process.env.WAKEUP_DRIVER = "memory";
 process.env.SANDBOX_PROVIDER = "fake";
@@ -34,7 +38,8 @@ describeWithDatabase("Composio catalog reconciliation", () => {
   let composio: ComposioConnector;
   let thirdParties: ThirdPartyConnectorEmulator;
   let connectionOrdinal = 0;
-  const stamp = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  /** Every test runs in this one fresh Space; afterEach clears its connector rows. */
+  let scope: Scope;
   const dataDir = mkdtempSync(path.join(tmpdir(), "rakazo-connections-"));
 
   beforeAll(async () => {
@@ -67,6 +72,7 @@ describeWithDatabase("Composio catalog reconciliation", () => {
       signupsEnabled: "true",
     });
     app = handles.app;
+    scope = await newScope(app, "connector tests");
   });
 
   afterAll(async () => {
@@ -74,15 +80,26 @@ describeWithDatabase("Composio catalog reconciliation", () => {
     rmSync(dataDir, { recursive: true, force: true });
   });
 
-  afterEach(() => {
-    vi.restoreAllMocks();
+  beforeEach(() => {
+    // Remote Composio accounts key on the one owner, so tests would otherwise
+    // see each other's OAuth state in the shared fake client.
+    fake.accounts.length = 0;
   });
 
-  it("serializes overlapping backup replacements without mixing users or orders", async () => {
-    const ownerCookie = await signup(app, `backup-owner-${stamp}@rakazo.test`, "Owner");
-    const otherCookie = await signup(app, `backup-other-${stamp}@rakazo.test`, "Other");
-    const owner = await rpc<Actor>(app, ownerCookie, "me");
-    const other = await rpc<Actor>(app, otherCookie, "me");
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    if (!handles) return;
+    // The single owner has no per-user isolation left, so drop this Space's
+    // connector state between tests instead of relying on test order.
+    const db = asSystem(handles.prisma);
+    await db.connection.deleteMany({ where: { spaceId: scope.spaceId } });
+    await db.capabilityInstall.deleteMany({ where: { spaceId: scope.spaceId } });
+    await db.secret.deleteMany({ where: { spaceId: scope.spaceId } });
+    await db.spaceBackupModel.deleteMany({ where: { spaceId: scope.spaceId } });
+  });
+
+  it("serializes overlapping backup replacements without mixing spaces or orders", async () => {
+    const other = await newScope(app, "backup other");
     const first = [{ provider: "provider-a", modelId: "first" }];
     const second = [
       { provider: "provider-b", modelId: "second" },
@@ -90,35 +107,26 @@ describeWithDatabase("Composio catalog reconciliation", () => {
     ];
     await replaceSpaceBackupModels(handles.prisma, other, first);
     await Promise.all([
-      replaceSpaceBackupModels(handles.prisma, owner, first),
-      replaceSpaceBackupModels(handles.prisma, owner, second),
+      replaceSpaceBackupModels(handles.prisma, scope, first),
+      replaceSpaceBackupModels(handles.prisma, scope, second),
     ]);
-    expect([first, second]).toContainEqual(await listSpaceBackupModels(handles.prisma, owner));
+    expect([first, second]).toContainEqual(await listSpaceBackupModels(handles.prisma, scope));
     expect(await listSpaceBackupModels(handles.prisma, other)).toEqual(first);
   });
 
   it("reconciles one scoped row per provider under concurrent catalog fetches", async () => {
-    const ownerCookie = await signup(app, `owner-connections-${stamp}@rakazo.test`, "Owner");
-    const otherCookie = await signup(app, `other-connections-${stamp}@rakazo.test`, "Other");
-    const owner = await rpc<Actor>(app, ownerCookie, "me");
-    const other = await rpc<Actor>(app, otherCookie, "me");
+    const owner = scope;
+    const elsewhere = await newScope(app, "reconcile elsewhere");
     await connectRemote(composio, owner, "GMAIL");
 
     const first = await createConnection(owner, "GMAIL");
     const duplicate = await createConnection(owner, "GMAIL");
     const otherProvider = await createConnection(owner, "SLACK");
-    const otherUser = await createConnection(
-      { spaceId: owner.spaceId, userId: other.userId },
-      "GMAIL",
-    );
-    const otherWorkspace = await createConnection(
-      { spaceId: other.spaceId, userId: owner.userId },
-      "GMAIL",
-    );
+    const otherSpace = await createConnection(elsewhere, "GMAIL");
 
     const catalogs = await Promise.all(
       Array.from({ length: 4 }, () =>
-        rpc<Array<{ slug: string; connected: boolean }>>(app, ownerCookie, "connections/catalog"),
+        owner.rpc<Array<{ slug: string; connected: boolean }>>("connections/catalog"),
       ),
     );
     for (const catalog of catalogs) {
@@ -129,13 +137,12 @@ describeWithDatabase("Composio catalog reconciliation", () => {
       { id: first.id, status: "connected" },
       { id: duplicate.id, status: "revoked" },
     ]);
-    await expect(statuses([otherProvider.id, otherUser.id, otherWorkspace.id])).resolves.toEqual([
+    await expect(statuses([otherProvider.id, otherSpace.id])).resolves.toEqual([
       { id: otherProvider.id, status: "pending" },
-      { id: otherUser.id, status: "pending" },
-      { id: otherWorkspace.id, status: "pending" },
+      { id: otherSpace.id, status: "pending" },
     ]);
 
-    await rpc(app, ownerCookie, "connections/catalog");
+    await owner.rpc("connections/catalog");
     await expect(statuses([first.id, duplicate.id])).resolves.toEqual([
       { id: first.id, status: "connected" },
       { id: duplicate.id, status: "revoked" },
@@ -143,23 +150,18 @@ describeWithDatabase("Composio catalog reconciliation", () => {
   });
 
   it("keeps a second connected account for the same provider and renames it", async () => {
-    const cookie = await signup(app, `multi-account-${stamp}@rakazo.test`, "Multi Account");
-    const first = await rpc<{ connectionId: string }>(app, cookie, "connections/begin", {
+    const first = await scope.rpc<{ connectionId: string }>("connections/begin", {
       connectorId: "composio",
       provider: "GMAIL",
       displayName: "Personal",
     });
-    const second = await rpc<{ connectionId: string }>(app, cookie, "connections/begin", {
+    const second = await scope.rpc<{ connectionId: string }>("connections/begin", {
       connectorId: "composio",
       provider: "GMAIL",
       displayName: "Work",
     });
     await expect(
-      rpc<Array<{ id: string; displayName: string; status: string }>>(
-        app,
-        cookie,
-        "connections/list",
-      ),
+      scope.rpc<Array<{ id: string; displayName: string; status: string }>>("connections/list"),
     ).resolves.toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -176,21 +178,21 @@ describeWithDatabase("Composio catalog reconciliation", () => {
     );
 
     await expect(
-      rpc<{ displayName: string }>(app, cookie, "connections/rename", {
+      scope.rpc<{ displayName: string }>("connections/rename", {
         connectionId: second.connectionId,
         displayName: "Work inbox",
       }),
     ).resolves.toMatchObject({ displayName: "Work inbox" });
 
-    await rpc(app, cookie, "connections/catalog");
+    await scope.rpc("connections/catalog");
     await expect(statuses([first.connectionId, second.connectionId])).resolves.toEqual([
       { id: first.connectionId, status: "connected" },
       { id: second.connectionId, status: "connected" },
     ]);
 
-    await rpc(app, cookie, "connections/revoke", { connectionId: first.connectionId });
+    await scope.rpc("connections/revoke", { connectionId: first.connectionId });
     await expect(
-      rpc<Array<{ id: string; status: string }>>(app, cookie, "connections/list"),
+      scope.rpc<Array<{ id: string; status: string }>>("connections/list"),
     ).resolves.toEqual(
       expect.arrayContaining([
         expect.objectContaining({ id: first.connectionId, status: "revoked" }),
@@ -200,22 +202,21 @@ describeWithDatabase("Composio catalog reconciliation", () => {
 
     // Uninstall the remaining account: catalog must flip off Added (slug-only
     // emulator refs used to skip remote revoke and leave Gmail stuck connected).
-    await rpc(app, cookie, "connections/revoke", { connectionId: second.connectionId });
+    await scope.rpc("connections/revoke", { connectionId: second.connectionId });
     await expect(
-      rpc<Array<{ slug: string; connected: boolean }>>(app, cookie, "connections/catalog", {
+      scope.rpc<Array<{ slug: string; connected: boolean }>>("connections/catalog", {
         connectorId: "composio",
       }),
     ).resolves.toContainEqual(expect.objectContaining({ slug: "GMAIL", connected: false }));
   });
 
   it("marks a connected account Composio reports dead as needing reconnect", async () => {
-    const cookie = await signup(app, `reconnect-${stamp}@rakazo.test`, "Reconnect");
-    const work = await rpc<{ connectionId: string }>(app, cookie, "connections/begin", {
+    const work = await scope.rpc<{ connectionId: string }>("connections/begin", {
       connectorId: "composio",
       provider: "GMAIL",
       displayName: "Work",
     });
-    const personal = await rpc<{ connectionId: string }>(app, cookie, "connections/begin", {
+    const personal = await scope.rpc<{ connectionId: string }>("connections/begin", {
       connectorId: "composio",
       provider: "GMAIL",
       displayName: "Personal",
@@ -225,7 +226,7 @@ describeWithDatabase("Composio catalog reconciliation", () => {
     });
     fake.setStatus(row.providerRef!, "EXPIRED");
 
-    await rpc(app, cookie, "connections/catalog", { connectorId: "composio" });
+    await scope.rpc("connections/catalog", { connectorId: "composio" });
 
     await expect(statuses([work.connectionId, personal.connectionId])).resolves.toEqual([
       { id: work.connectionId, status: "error" },
@@ -234,8 +235,7 @@ describeWithDatabase("Composio catalog reconciliation", () => {
   });
 
   it("returns the remote catalog when local reconciliation fails", async () => {
-    const cookie = await signup(app, `db-failure-connections-${stamp}@rakazo.test`, "DB Failure");
-    const actor = await rpc<Actor>(app, cookie, "me");
+    const actor = scope;
     await connectRemote(composio, actor, "SLACK");
     const pending = await createConnection(actor, "SLACK");
     // Keep the rejection sticky: catalog reconciliation may call findMany more
@@ -245,9 +245,7 @@ describeWithDatabase("Composio catalog reconciliation", () => {
       .mockRejectedValue(new Error("simulated reconciliation failure"));
 
     // Scope to composio so a parallel managed provider cannot consume the one-shot findMany reject.
-    const catalog = await rpc<Array<{ slug: string; connected: boolean }>>(
-      app,
-      cookie,
+    const catalog = await actor.rpc<Array<{ slug: string; connected: boolean }>>(
       "connections/catalog",
       { connectorId: "composio" },
     );
@@ -258,30 +256,22 @@ describeWithDatabase("Composio catalog reconciliation", () => {
   });
 
   it("does not mutate local state when the provider catalog fails", async () => {
-    const cookie = await signup(
-      app,
-      `provider-failure-connections-${stamp}@rakazo.test`,
-      "Provider Failure",
-    );
-    const actor = await rpc<Actor>(app, cookie, "me");
+    const actor = scope;
     const pending = await createConnection(actor, "GITHUB");
     const failure = vi
       .spyOn(composio, "catalog")
       .mockRejectedValueOnce(new Error("simulated provider failure"));
 
-    await expect(
-      rpc(app, cookie, "connections/catalog", { connectorId: "composio" }),
-    ).resolves.toEqual([]);
+    await expect(actor.rpc("connections/catalog", { connectorId: "composio" })).resolves.toEqual(
+      [],
+    );
     await expect(statuses([pending.id])).resolves.toEqual([{ id: pending.id, status: "pending" }]);
     failure.mockRestore();
   });
 
   it("routes an emulated Composio app tool with user-scoped connection context", async () => {
-    const cookie = await signup(app, `composio-tool-${stamp}@rakazo.test`, "Composio Tool");
-    const actor = await rpc<Actor>(app, cookie, "me");
-    const started = await rpc<{ connectionId: string; authorizationUrl: null }>(
-      app,
-      cookie,
+    const actor = scope;
+    const started = await actor.rpc<{ connectionId: string; authorizationUrl: null }>(
       "connections/begin",
       { connectorId: "composio", provider: "GMAIL", displayName: "Gmail" },
     );
@@ -352,27 +342,21 @@ describeWithDatabase("Composio catalog reconciliation", () => {
   });
 
   it("runs Pipedream connection and MCP tool execution through the product registry", async () => {
-    const cookie = await signup(app, `pipedream-${stamp}@rakazo.test`, "Pipedream Connector");
-    const actor = await rpc<Actor>(app, cookie, "me");
-    const catalog = await rpc<Array<{ connectorId: string; slug: string; connected: boolean }>>(
-      app,
-      cookie,
-      "connections/catalog",
-      { connectorId: "pipedream" },
-    );
+    const actor = scope;
+    const catalog = await actor.rpc<
+      Array<{ connectorId: string; slug: string; connected: boolean }>
+    >("connections/catalog", { connectorId: "pipedream" });
     expect(catalog).toContainEqual(
       expect.objectContaining({ connectorId: "pipedream", slug: "linear", connected: false }),
     );
 
-    const started = await rpc<{ connectionId: string; authorizationUrl: string }>(
-      app,
-      cookie,
+    const started = await actor.rpc<{ connectionId: string; authorizationUrl: string }>(
       "connections/begin",
       { connectorId: "pipedream", provider: "linear", displayName: "Linear" },
     );
     expect(started.authorizationUrl).toBe("https://pipedream.example.test/connect?app=linear");
     await expect(
-      rpc<{ status: string }>(app, cookie, "connections/complete", {
+      actor.rpc<{ status: string }>("connections/complete", {
         connectionId: started.connectionId,
       }),
     ).resolves.toMatchObject({ status: "connected" });
@@ -410,21 +394,18 @@ describeWithDatabase("Composio catalog reconciliation", () => {
     }
     expect(events).toContainEqual(expect.objectContaining({ type: "result" }));
 
-    await rpc(app, cookie, "connections/revoke", { connectionId: started.connectionId });
+    await actor.rpc("connections/revoke", { connectionId: started.connectionId });
     await expect(
-      rpc<Array<{ id: string; status: string }>>(app, cookie, "connections/list"),
+      actor.rpc<Array<{ id: string; status: string }>>("connections/list"),
     ).resolves.toContainEqual(
       expect.objectContaining({ id: started.connectionId, status: "revoked" }),
     );
   });
 
   it("installs Treg, Executor, and custom MCP sources and routes their calls", async () => {
-    const cookie = await signup(app, `mcp-connectors-${stamp}@rakazo.test`, "MCP Connectors");
-    const actor = await rpc<Actor>(app, cookie, "me");
+    const actor = scope;
     const tregCredential = "fake-treg-credential-value";
-    const treg = await rpc<{ id: string; secretConfigured: boolean }>(
-      app,
-      cookie,
+    const treg = await actor.rpc<{ id: string; secretConfigured: boolean }>(
       "capabilities/install",
       {
         kind: "mcp",
@@ -434,9 +415,7 @@ describeWithDatabase("Composio catalog reconciliation", () => {
         config: { preset: "treg", auth: { type: "bearer" } },
       },
     );
-    const custom = await rpc<{ id: string; secretConfigured: boolean }>(
-      app,
-      cookie,
+    const custom = await actor.rpc<{ id: string; secretConfigured: boolean }>(
       "capabilities/install",
       {
         kind: "mcp",
@@ -446,9 +425,7 @@ describeWithDatabase("Composio catalog reconciliation", () => {
       },
     );
     const executorCredential = "fake-executor-credential-value";
-    const executor = await rpc<{ id: string; secretConfigured: boolean }>(
-      app,
-      cookie,
+    const executor = await actor.rpc<{ id: string; secretConfigured: boolean }>(
       "capabilities/install",
       {
         kind: "mcp",
@@ -522,14 +499,13 @@ describeWithDatabase("Composio catalog reconciliation", () => {
   });
 
   it("imports an OpenAPI connector, keeps its credential encrypted, and routes calls", async () => {
-    const cookie = await signup(app, `api-connector-${stamp}@rakazo.test`, "API Connector");
-    const actor = await rpc<Actor>(app, cookie, "me");
+    const actor = scope;
     const credential = "test-connector-secret-value";
-    const install = await rpc<{
+    const install = await actor.rpc<{
       id: string;
       config: Record<string, unknown>;
       secretConfigured: boolean;
-    }>(app, cookie, "capabilities/install", {
+    }>("capabilities/install", {
       kind: "api",
       name: "CRM API",
       source: "https://api.example.test/openapi.json",
@@ -590,20 +566,19 @@ describeWithDatabase("Composio catalog reconciliation", () => {
       }),
     );
 
-    await rpc(app, cookie, "capabilities/remove", { id: install.id });
+    await actor.rpc("capabilities/remove", { id: install.id });
     await expect(
       asSystem(handles.prisma).secret.findUnique({ where: { id: storedSecret.id } }),
     ).resolves.toBeNull();
   });
 
   it("imports a GraphQL connector, introspects operations, and routes calls", async () => {
-    const cookie = await signup(app, `graphql-connector-${stamp}@rakazo.test`, "GraphQL Connector");
-    const actor = await rpc<Actor>(app, cookie, "me");
-    const install = await rpc<{
+    const actor = scope;
+    const install = await actor.rpc<{
       id: string;
       config: Record<string, unknown>;
       secretConfigured: boolean;
-    }>(app, cookie, "capabilities/install", {
+    }>("capabilities/install", {
       kind: "graphql",
       name: "Star Wars API",
       source: "https://graphql.example.test/graphql",
@@ -652,8 +627,21 @@ describeWithDatabase("Composio catalog reconciliation", () => {
       }),
     );
 
-    await rpc(app, cookie, "capabilities/remove", { id: install.id });
+    await actor.rpc("capabilities/remove", { id: install.id });
   });
+
+  /** A fresh Space per test: the single deployment owner has no per-user isolation left. */
+  async function newScope(app: App, name: string): Promise<Scope> {
+    const space = await rpc<{ id: string }>(app, OWNER_COOKIE, "spaces/create", { name });
+    const spaceId = space.id;
+    const me = await rpc<{ userId: string }>(app, OWNER_COOKIE, "me", {}, spaceId);
+    return {
+      spaceId,
+      userId: me.userId,
+      rpc: async <T>(procedure: string, body: unknown = {}) =>
+        rpc<T>(app, OWNER_COOKIE, procedure, body, spaceId),
+    };
+  }
 
   async function createConnection(owner: Actor, provider: string) {
     return asSystem(handles.prisma).connection.create({
@@ -690,24 +678,20 @@ async function connectRemote(composio: ComposioConnector, actor: Actor, provider
   );
 }
 
-/**
- * There are no accounts: the API acts as its single deployment owner for every
- * request, so sign-up is a no-op kept for call-site readability.
- */
-async function signup(app: App, email: string, name: string): Promise<string> {
-  void app;
-  void email;
-  void name;
-  return OWNER_COOKIE;
-}
-
-async function rpc<T>(app: App, cookie: string, procedure: string, body: unknown = {}): Promise<T> {
+async function rpc<T>(
+  app: App,
+  cookie: string,
+  procedure: string,
+  body: unknown = {},
+  spaceId?: string,
+): Promise<T> {
   const response = await app.request(`/rpc/${procedure}`, {
     method: "POST",
     headers: {
       "content-type": "application/json",
       cookie,
       origin: "http://127.0.0.1:5173",
+      ...(spaceId ? { "x-rakazo-space-id": spaceId } : {}),
     },
     body: JSON.stringify({ json: body }),
   });

@@ -118,6 +118,8 @@ describe.skipIf(!databaseAvailable)("offline Pi computer approval", () => {
           modelId: model.model.id,
         });
         const storedBot = await db.bot.findUniqueOrThrow({ where: { id: bot.id } });
+        // Both variants act in the same owner space, so the previous rule must go.
+        await db.actionApprovalRule.deleteMany({ where: { spaceId: storedBot.spaceId } });
         await db.actionApprovalRule.create({
           data: {
             spaceId: storedBot.spaceId,

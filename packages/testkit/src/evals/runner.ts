@@ -106,9 +106,12 @@ export async function runTrial(
   const seenTools = new Map<string, { name: string }>();
   let clearedToolCount = 0;
   const seenUsage = new Map<string, LedgerCall>();
+  // Every trial acts as the one deployment owner, so space-scoped queries would
+  // sweep earlier trials' rows. Scope accounting to this trial's bots instead.
+  const actorBotIds = () => actors.map((actor) => actor.botId);
   const countCurrentTools = () =>
     db!.event.count({
-      where: { spaceId: { in: actors.map((actor) => actor.spaceId) }, type: "agent.tool.called" },
+      where: { botId: { in: actorBotIds() }, type: "agent.tool.called" },
     });
   // Clearing removes conversation events while the durable usage ledger remains.
   // Deduplicate observed records by id so multi-turn totals and budgets never reset.
@@ -116,7 +119,7 @@ export async function runTrial(
     if (!db) return seenTools.size;
     const events = await db.event.findMany({
       where: {
-        spaceId: { in: actors.map((actor) => actor.spaceId) },
+        botId: { in: actorBotIds() },
         type: "agent.tool.called",
         ...(seenTools.size ? { id: { notIn: [...seenTools.keys()] } } : {}),
       },
@@ -131,7 +134,7 @@ export async function runTrial(
   const captureUsage = async () => {
     if (!db) return;
     const usage = await db.usageRecord.findMany({
-      where: { OR: actorScopes(actors) },
+      where: { botId: { in: actorBotIds() } },
     });
     for (const row of usage)
       seenUsage.set(row.id, {
@@ -832,19 +835,27 @@ async function waitForMessagingDelivery(
   }, deadline);
 }
 
-function actorScopes(actors: readonly EvalActor[]) {
-  return actors.map(({ userId, spaceId }) => ({ userId, spaceId }));
-}
-
+/** Bots in the trial scope: the actor bots plus anything they spawned. */
 async function findScopeBots(
   prisma: EvalApp["prisma"],
   actors: readonly EvalActor[],
 ): Promise<Array<{ id: string; userId: string; spaceId: string }>> {
   if (!actors.length) return [];
-  return prisma.bot.findMany({
-    where: { OR: actorScopes(actors) },
-    select: { id: true, userId: true, spaceId: true },
-  });
+  const known = new Map<string, { id: string; userId: string; spaceId: string }>();
+  let frontier = actors.map((actor) => actor.botId);
+  while (frontier.length) {
+    const rows = await prisma.bot.findMany({
+      where: { OR: [{ id: { in: frontier } }, { parentBotId: { in: frontier } }] },
+      select: { id: true, userId: true, spaceId: true },
+    });
+    frontier = rows
+      .filter((row) => !known.has(row.id))
+      .map((row) => {
+        known.set(row.id, row);
+        return row.id;
+      });
+  }
+  return [...known.values()];
 }
 
 function cookieForBot(bot: { userId: string; spaceId: string }, actors: readonly EvalActor[]) {
@@ -860,7 +871,6 @@ export async function cleanupActors(
   if (!actors.length) return;
   const prisma = asSystem(handles.prisma);
   const failures: unknown[] = [];
-  const scopes = actorScopes(actors);
   let stable = false;
 
   // A parent can finish spawning a child while its abort is settling. Repeat until
@@ -874,7 +884,7 @@ export async function cleanupActors(
     let runsBeforeStop: Array<{ id: string }> = [];
     try {
       await prisma.routine.updateMany({
-        where: { OR: scopes },
+        where: { botId: { in: actors.map((actor) => actor.botId) } },
         data: { active: false, nextRunAt: null },
       });
     } catch (error) {
@@ -886,9 +896,10 @@ export async function cleanupActors(
     } catch (error) {
       failures.push(error);
     }
+    const botIds = bots.map((bot) => bot.id);
     try {
       runsBeforeStop = await prisma.run.findMany({
-        where: { OR: scopes },
+        where: { botId: { in: botIds } },
         select: { id: true },
       });
     } catch (error) {
@@ -911,7 +922,7 @@ export async function cleanupActors(
     let runsAfterStop: Array<{ id: string }> = [];
     try {
       runsAfterStop = await prisma.run.findMany({
-        where: { OR: scopes },
+        where: { botId: { in: botIds } },
         select: { id: true },
       });
     } catch (error) {
@@ -938,16 +949,16 @@ export async function cleanupActors(
     let activeRoutineCount: number | undefined;
     try {
       await prisma.routine.updateMany({
-        where: { OR: scopes },
+        where: { botId: { in: botIds } },
         data: { active: false, nextRunAt: null },
       });
       [botsAfter, runsAfter, activeRoutineCount] = await Promise.all([
         findScopeBots(prisma, actors),
         prisma.run.findMany({
-          where: { OR: scopes },
+          where: { botId: { in: botIds } },
           select: { id: true, status: true },
         }),
-        prisma.routine.count({ where: { OR: scopes, active: true } }),
+        prisma.routine.count({ where: { botId: { in: botIds }, active: true } }),
       ]);
     } catch (error) {
       failures.push(error);

@@ -94,8 +94,13 @@ describe("eval trial isolation", () => {
     expect(f.order).toContain("stop:late-child-bot");
     expect(f.cancel).toHaveBeenCalledWith("run:late-child-run");
     expect(f.abort).toHaveBeenCalledWith("late-child-run");
+    // Routines are disabled per trial bot (including discovered descendants), not per space.
     expect(f.updateMany).toHaveBeenCalledWith({
-      where: { OR: [{ userId: "eval-user", spaceId: "eval-space" }] },
+      where: { botId: { in: ["root-bot"] } },
+      data: { active: false, nextRunAt: null },
+    });
+    expect(f.updateMany).toHaveBeenLastCalledWith({
+      where: { botId: { in: ["root-bot", "child-bot", "late-child-bot"] } },
       data: { active: false, nextRunAt: null },
     });
   });

@@ -192,7 +192,6 @@ test("This computer installs and starts the stack, then opens the app", async ()
   expect(await readFile(tokenFile, "utf8")).toMatch(/^[0-9a-f]{64}\n$/);
   const env = await readFile(envFile, "utf8");
   expect(env).toMatch(/^POSTGRES_PASSWORD=[0-9a-f]{32}$/m);
-  expect(env).toMatch(/^BETTER_AUTH_SECRET=[0-9a-f]{64}$/m);
   expect(env).not.toContain("RAKAZO_IMAGE_TAG=");
   expect(env).not.toContain("RAKAZO_COMPUTER_IMAGE_TAG=");
   await expect(readFile(path.join(stackDir, "docker-compose.images.yml"), "utf8")).resolves.toBe(

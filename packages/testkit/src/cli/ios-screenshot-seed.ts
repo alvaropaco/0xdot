@@ -1,6 +1,4 @@
 import { createDb, createThreadMessage } from "@rakazo/db";
-import {} from "../index.js";
-import { OWNER_COOKIE } from "./index.js";
 
 const MARKER = "marigold checklist";
 const READY = "The fixture workspace is ready.";

@@ -44,9 +44,14 @@ describeLive("real model and sandbox computer journey", () => {
       defaultModel: process.env.COMPUTER_E2E_MODEL,
       wakeupDriver: "memory",
     });
-    await handles.prisma.deploymentSettings.update({
+    await handles.prisma.deploymentSettings.upsert({
       where: { id: "default" },
-      data: {
+      create: {
+        id: "default",
+        defaultModelProvider: "openrouter",
+        defaultModelId: process.env.COMPUTER_E2E_MODEL,
+      },
+      update: {
         defaultModelProvider: "openrouter",
         defaultModelId: process.env.COMPUTER_E2E_MODEL,
       },

@@ -7,6 +7,7 @@ import { answerRunInput, runAsSystem, runAsTenant } from "@rakazo/db";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { createApp } from "../../../apps/api/src/app.ts";
 import { discardBotIntroFromCreate } from "./discard-bot-intro.js";
+import { OWNER_COOKIE } from "./index.js";
 import { asSystem } from "./system-db.js";
 
 const hasDb = process.env.VERIFY_DATABASE === "1" && Boolean(process.env.DATABASE_URL);

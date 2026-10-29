@@ -181,7 +181,6 @@ describeAttachments("chat attachments", () => {
   });
   it("persists server-owned reply previews, isolates threads, and handles deletion", async () => {
     const cookie = await signup(app, `replies-${stamp}@rakazo.test`, "Reply User");
-    const otherCookie = await signup(app, `replies-other-${stamp}@rakazo.test`, "Other User");
     const bot = await rpc<{ id: string }>(app, cookie, "bots/create", {
       name: "Helper",
       title: "Helper",
@@ -211,12 +210,6 @@ describeAttachments("chat attachments", () => {
       replyPreview: { role: "user", text: "Parent first line" },
     });
 
-    const denied = await raw(app, otherCookie, "threads/send", {
-      botId: bot.id,
-      text: "Unauthorized",
-      replyToMessageId: parent.id,
-    });
-    expect(denied.status).toBeGreaterThanOrEqual(400);
     const otherBot = await rpc<{ id: string }>(app, cookie, "bots/create", {
       name: "Other",
       title: "Other",

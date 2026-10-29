@@ -52,16 +52,19 @@ export async function completeOnboarding(page: Page, testInfo?: TestInfo) {
 }
 
 /**
- * No-op: the API provisions one implicit deployment owner, so there is no account
- * to create. The signature stays so existing call sites keep working.
+ * There is no account to create: the API acts as its single deployment owner.
+ * The old helper navigated to the app after signing up, so this still starts a
+ * fresh onboarding (it redirects to the shell when nothing is left to set up).
  */
 export async function signup(
-  _page: Page,
+  page: Page,
   _email: string,
   _password: string,
   _name: string,
   _testInfo?: TestInfo,
-) {}
+) {
+  await page.goto("/onboarding");
+}
 
 /** Open Advanced through its trigger, preserving an already-expanded section. */
 export async function expandAdvancedSection(section: Locator) {
