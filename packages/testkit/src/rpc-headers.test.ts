@@ -1,6 +1,8 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { createApp } from "../../../apps/api/src/app.ts";
-import { discardBotIntroFromCreate } from "./discard-bot-intro.js";
 
 process.env.WAKEUP_DRIVER = "memory";
 process.env.SANDBOX_PROVIDER = "fake";
@@ -10,17 +12,18 @@ const hasDb = process.env.VERIFY_DATABASE === "1" && Boolean(process.env.DATABAS
 const describeWithDatabase = hasDb ? describe : describe.skip;
 
 let handles: Awaited<ReturnType<typeof createApp>> | undefined;
-let stop: (() => Promise<void>) | undefined;
+let dataDir: string | undefined;
 
 describeWithDatabase("RPC reply headers", () => {
   beforeAll(async () => {
     const { createApp: build } = await import("../../../apps/api/src/app.ts");
-    handles = await build({ databaseUrl: process.env.DATABASE_URL! });
-    stop = discardBotIntroFromCreate(handles);
+    dataDir = mkdtempSync(path.join(tmpdir(), "rakazo-rpc-headers-"));
+    handles = await build({ databaseUrl: process.env.DATABASE_URL!, dataDir });
   });
 
   afterAll(async () => {
-    await stop?.();
+    await handles?.stop();
+    if (dataDir) rmSync(dataDir, { recursive: true, force: true });
   });
 
   it("marks streaming RPC replies as not cacheable, including errors", async () => {
