@@ -1,9 +1,11 @@
+import type { Route } from "@playwright/test";
 import { expect, test } from "@playwright/test";
 import { captureScreenshot, completeOnboarding, signup } from "./helpers";
 
 test.afterEach(async ({ page }) => {
-  // Polling can leave a route.fetch response in use when the assertions finish.
-  await page.unrouteAll({ behavior: "wait" });
+  // In-flight route handlers settle after the page closes; waiting for them
+  // here can outlive the test under load.
+  await page.unrouteAll();
 });
 
 /**
@@ -102,6 +104,15 @@ test("messaging settings show linked chat apps, channels, connections, and team 
   );
 
   await page.route("**/rpc/spaces/list", async (route) => {
+    // A navigation can abort the request mid-handler; let the app's retry win.
+    try {
+      await fulfillSpacesList(route);
+    } catch {
+      return;
+    }
+  });
+
+  async function fulfillSpacesList(route: Route) {
     const response = await route.fetch();
     const payload = (await response.json()) as {
       json?: {
@@ -139,19 +150,23 @@ test("messaging settings show linked chat apps, channels, connections, and team 
         if (space.id === current.id) space.externalConversations = [conversation];
       }
     }
-    await route.fulfill({
-      status: response.status(),
-      contentType: "application/json",
-      body: JSON.stringify(payload),
-    });
-  });
+    await route
+      .fulfill({
+        status: response.status(),
+        contentType: "application/json",
+        body: JSON.stringify(payload),
+      })
+      .catch(() => undefined);
+  }
 
   const stamp = Date.now();
   const userName = `Messenger ${stamp}`;
   await signup(page, `messaging-${stamp}@rakazo.test`, "password12", userName);
   await completeOnboarding(page);
 
-  await page.getByRole("button", { name: new RegExp(userName) }).click();
+  // The account menu trigger is a generic icon; the signed-up name is no longer
+  // rendered as a button.
+  await page.getByTestId("user-menu-trigger").click();
   await page.getByRole("button", { name: "Settings" }).click();
   const settings = page.getByTestId("user-settings");
   await settings
@@ -178,7 +193,7 @@ test("messaging settings show linked chat apps, channels, connections, and team 
   await page.getByRole("button", { name: "Close messaging settings" }).click();
   await expect(messagingSettings).toHaveCount(0);
 
-  await page.getByRole("button", { name: new RegExp(userName) }).click();
+  await page.getByTestId("user-menu-trigger").click();
   await page.getByRole("button", { name: "Settings" }).click();
   await settings.getByTestId("ui-locale-select").click();
   await page.getByRole("option", { name: "한국어", exact: true }).click();

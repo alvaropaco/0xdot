@@ -33,6 +33,12 @@ for (const surface of ["settings", "onboarding"] as const) {
       );
       if (surface === "settings") {
         await completeOnboarding(page);
+        // A connected OpenAI-compatible connection renders a different form
+        // (saved models, no freeform id), and connections are account-wide, so
+        // pin this page to the disconnected shape regardless of other specs.
+        await page.route("**/rpc/models/credentials", (route) =>
+          route.fulfill({ json: { json: [] } }),
+        );
         await openUserSettings(page, "models");
         await page.getByPlaceholder("Search providers").fill("openai-compatible");
         await page.getByRole("button", { name: /OpenAI-compatible/ }).click();

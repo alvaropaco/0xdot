@@ -4,9 +4,13 @@ import { signup } from "./helpers";
 test("onboarding cannot continue with an empty or failed model catalog", async ({ page }) => {
   let unavailable: "empty" | "failed" = "empty";
   await page.route("**/rpc/me", async (route) => {
-    const response = await route.fetch();
-    const body = (await response.json()) as { json: Record<string, unknown> };
-    await route.fulfill({ response, json: { json: { ...body.json, needsModel: true } } });
+    try {
+      const response = await route.fetch();
+      const body = (await response.json()) as { json: Record<string, unknown> };
+      await route.fulfill({ response, json: { json: { ...body.json, needsModel: true } } });
+    } catch {
+      // A navigation can abort the request mid-handler (two goto calls race).
+    }
   });
   await page.route("**/rpc/models/list", (route) =>
     unavailable === "failed" ? route.abort() : route.fulfill({ json: { json: [] } }),
@@ -29,9 +33,13 @@ test("onboarding cannot continue with an empty or failed model catalog", async (
 
 test("Ollama Cloud onboarding requires a key before continuing", async ({ page }) => {
   await page.route("**/rpc/me", async (route) => {
-    const response = await route.fetch();
-    const body = (await response.json()) as { json: Record<string, unknown> };
-    await route.fulfill({ response, json: { json: { ...body.json, needsModel: true } } });
+    try {
+      const response = await route.fetch();
+      const body = (await response.json()) as { json: Record<string, unknown> };
+      await route.fulfill({ response, json: { json: { ...body.json, needsModel: true } } });
+    } catch {
+      // A navigation can abort the request mid-handler.
+    }
   });
   const stamp = Date.now();
   await signup(page, `ollama-${stamp}@rakazo.test`, "password12", "Model setup");

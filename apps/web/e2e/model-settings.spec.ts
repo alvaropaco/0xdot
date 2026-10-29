@@ -7,8 +7,10 @@ import {
   captureScreenshot,
   chooseOption,
   completeOnboarding,
+  createIsolatedSpace,
   expandAdvancedSection,
   openUserSettings,
+  resetModelCredentials,
   rpc,
   signup,
 } from "./helpers";
@@ -16,6 +18,12 @@ import {
 const LOCAL_MODEL_ID = "rakazo-e2e-local";
 const SECOND_MODEL_ID = "rakazo-e2e-second";
 const LOCAL_MODEL_REPLY = "OpenAI-compatible endpoint verified end to end.";
+
+// Connections are account-wide, so each test leaves no credentials behind:
+// later specs and shard files keep seeing the pristine scripted-only catalog.
+test.afterEach(async ({ page }) => {
+  await resetModelCredentials(page, { except: ["cerebras"] }).catch(() => undefined);
+});
 
 test("model settings cleanup frames", async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
@@ -118,8 +126,16 @@ test("custom connections persist reasoning support and bot thinking", async ({
 }, testInfo) => {
   const stamp = Date.now();
   const userName = `Reasoning ${stamp}`;
+  // Own Space: this test saves a model and thinking level on its first bot, and
+  // the shared first bot must stay on the deployment default for later files.
+  const spaceId = await createIsolatedSpace(page, `Reasoning ${stamp}`);
+  const spaceHeaders = { "x-rakazo-space-id": spaceId };
   await signup(page, `reasoning-model-${stamp}@rakazo.test`, "password12", userName);
   await completeOnboarding(page);
+  // Earlier specs in the shard connect catalog providers; this test needs the
+  // pristine catalog so the bot's Model control stays a native select.
+  // Cerebras belongs to routine-crud's pick; the resets leave it alone.
+  await resetModelCredentials(page, { except: ["cerebras"] });
   await openUserSettings(page, "models");
   await page.getByPlaceholder("Search providers").fill("openai-compatible");
   await page.getByRole("button", { name: /OpenAI-compatible/ }).click();
@@ -137,31 +153,29 @@ test("custom connections persist reasoning support and bot thinking", async ({
   await captureScreenshot(page, testInfo, "openai-compatible-thinking-connection");
   await page.getByRole("button", { name: "Save", exact: true }).click();
   await expect(page.getByText("Saved.", { exact: true })).toBeVisible();
-  const credentials = await rpc<
-    Array<{
-      modelId?: string;
-      reasoning?: boolean;
-      thinkingLevel?: string | null;
-      maxTokens?: number;
-      contextWindow?: number;
-      supportsImages?: boolean;
-      maxImagesPerPrompt?: number;
-    }>
-  >(page, "models/credentials", {});
-  expect(credentials.find((entry) => entry.modelId === "arbitrary-model")?.reasoning).toBe(true);
-  expect(credentials.find((entry) => entry.modelId === "arbitrary-model")?.thinkingLevel).toBe(
-    "low",
-  );
-  expect(credentials.find((entry) => entry.modelId === "arbitrary-model")?.maxTokens).toBe(8192);
-  expect(credentials.find((entry) => entry.modelId === "arbitrary-model")?.contextWindow).toBe(
-    65536,
-  );
-  expect(credentials.find((entry) => entry.modelId === "arbitrary-model")?.supportsImages).toBe(
-    true,
-  );
-  expect(credentials.find((entry) => entry.modelId === "arbitrary-model")?.maxImagesPerPrompt).toBe(
-    1,
-  );
+  // The saved connection is this spec's only openai-compatible credential, and
+  // its settings are stored with the connection itself. Match by provider: the
+  // model id only appears once the connection has become the space default,
+  // which a concurrent spec's writes can delay indefinitely.
+  const savedConnection = (
+    await rpc<
+      Array<{
+        provider: string;
+        reasoning?: boolean;
+        thinkingLevel?: string | null;
+        maxTokens?: number;
+        contextWindow?: number;
+        supportsImages?: boolean;
+        maxImagesPerPrompt?: number;
+      }>
+    >(page, "models/credentials", {}, spaceHeaders)
+  ).find((entry) => entry.provider === "openai-compatible");
+  expect(savedConnection?.reasoning).toBe(true);
+  expect(savedConnection?.thinkingLevel).toBe("low");
+  expect(savedConnection?.maxTokens).toBe(8192);
+  expect(savedConnection?.contextWindow).toBe(65536);
+  expect(savedConnection?.supportsImages).toBe(true);
+  expect(savedConnection?.maxImagesPerPrompt).toBe(1);
   await page.reload();
   await openUserSettings(page, "models");
   await page.getByText("Advanced", { exact: true }).click();
@@ -182,9 +196,9 @@ test("custom connections persist reasoning support and bot thinking", async ({
   await page.getByRole("button", { name: "Save", exact: true }).click();
   await expect(page.getByText("Saved.", { exact: true })).toBeVisible();
   const clearedCredentials = await rpc<
-    Array<{ modelId?: string; maxImagesPerPrompt?: number; thinkingLevel?: string | null }>
-  >(page, "models/credentials", {});
-  const cleared = clearedCredentials.find((entry) => entry.modelId === "arbitrary-model");
+    Array<{ provider: string; maxImagesPerPrompt?: number; thinkingLevel?: string | null }>
+  >(page, "models/credentials", {}, spaceHeaders);
+  const cleared = clearedCredentials.find((entry) => entry.provider === "openai-compatible");
   expect(cleared).toBeDefined();
   expect(cleared?.maxImagesPerPrompt).toBeUndefined();
   expect(cleared?.thinkingLevel ?? null).toBeNull();
@@ -401,6 +415,10 @@ test("connects, lists, and uses an OpenAI-compatible endpoint", async ({ page },
     const baseUrl = process.env.E2E_COMPATIBLE_FIXTURE_URL ?? `http://127.0.0.1:${address.port}/v1`;
     const stamp = Date.now();
     const userName = `Local model ${stamp}`;
+    // Own Space: this test saves its models on the first bot, and the shared
+    // first bot must stay on the deployment default for later files.
+    const spaceId = await createIsolatedSpace(page, `Local model ${stamp}`);
+    const spaceHeaders = { "x-rakazo-space-id": spaceId };
     // The pi runtime asks for a model before onboarding finishes; this test connects
     // the fake endpoint from settings instead, so skip that step on the client.
     const skipModelStep = process.env.AGENT_RUNTIME === "pi";
@@ -408,6 +426,10 @@ test("connects, lists, and uses an OpenAI-compatible endpoint", async ({ page },
     await signup(page, `local-model-${stamp}@rakazo.test`, "password12", userName);
     await completeOnboarding(page);
     if (skipModelStep) await page.unroute("**/rpc/me", fulfillWithoutModelStep);
+    // Earlier specs' connected providers would both grow the bot's Model select
+    // past its native form and add stray credentials; isolate this connection.
+    // Cerebras belongs to routine-crud's pick; the resets leave it alone.
+    await resetModelCredentials(page, { except: ["cerebras"] });
 
     await openUserSettings(page, "models");
     const providerSearch = page.getByPlaceholder("Search providers");
@@ -471,13 +493,16 @@ test("connects, lists, and uses an OpenAI-compatible endpoint", async ({ page },
     await expect(page.getByLabel("Header value", { exact: true })).toHaveValue("");
     await page.getByRole("group", { name: "Headers", exact: true }).scrollIntoViewIfNeeded();
     await captureScreenshot(page, testInfo, "openai-compatible-header-saved");
-    const savedCredentials = await rpc<Array<{ modelId?: string; enabledModelIds?: string[] }>>(
+    // Match by provider: the enabled ids are stored with the connection, while
+    // the model id only appears once the connection has become the space default.
+    const savedCredentials = await rpc<Array<{ provider: string; enabledModelIds?: string[] }>>(
       page,
       "models/credentials",
       {},
+      spaceHeaders,
     );
     expect(
-      savedCredentials.find((entry) => entry.modelId === LOCAL_MODEL_ID)?.enabledModelIds,
+      savedCredentials.find((entry) => entry.provider === "openai-compatible")?.enabledModelIds,
     ).toEqual([LOCAL_MODEL_ID, SECOND_MODEL_ID]);
 
     await page.getByLabel("OpenAI-compatible server URL").fill("");
@@ -544,6 +569,9 @@ test("model settings connect, replace, and cancel provider authentication", asyn
   const userName = `Models ${stamp}`;
   await signup(page, `models-${stamp}@rakazo.test`, "password12", userName);
   await completeOnboarding(page);
+  // One "Connected" marker at a time: drop credentials earlier specs connected.
+  // Cerebras belongs to routine-crud's pick; the resets leave it alone.
+  await resetModelCredentials(page, { except: ["cerebras"] });
 
   await openUserSettings(page, "models");
   await expect(page.getByRole("button", { name: "Close model settings" })).toBeVisible();
@@ -597,7 +625,8 @@ test("model settings connect, replace, and cancel provider authentication", asyn
   // Connected providers get their own section with the saved model inline;
   // searching flattens back to one ranked list.
   await providerSearch.fill("");
-  await expect(page.getByText("Connected", { exact: true })).toBeVisible();
+  // Another spec's small fixture connection may sit beside this one.
+  await expect(page.getByText("Connected", { exact: true }).first()).toBeVisible();
   await expect(page.getByText("All providers", { exact: true })).toBeVisible();
   const scriptedRow = page.getByRole("button", { name: /^Scripted/ });
   await expect(scriptedRow).toContainText("Scripted runtime");
@@ -840,6 +869,8 @@ test("catalog models keep a space default thinking level per saved model", async
   const stamp = Date.now();
   await signup(page, `catalog-thinking-${stamp}@rakazo.test`, "password12", `Thinking ${stamp}`);
   await completeOnboarding(page);
+  // Cerebras belongs to routine-crud's pick; the resets leave it alone.
+  await resetModelCredentials(page, { except: ["cerebras"] });
 
   await openUserSettings(page, "models");
   const providerSearch = page.getByPlaceholder("Search providers");
@@ -896,8 +927,15 @@ test("catalog models keep a space default thinking level per saved model", async
 
 test("chat settings search a long model list", async ({ page }, testInfo) => {
   const stamp = Date.now();
+  // Own Space: earlier in-file tests save a model on the shared first bot, and
+  // this one needs a bot that still follows the space default.
+  const spaceId = await createIsolatedSpace(page, `Model search ${stamp}`);
+  const spaceHeaders = { "x-rakazo-space-id": spaceId };
   await signup(page, `chat-model-search-${stamp}@rakazo.test`, "password12", `Search ${stamp}`);
   await completeOnboarding(page);
+  // Credentials are account-wide, so drop whatever other specs connected.
+  // Cerebras belongs to routine-crud's pick; the resets leave it alone.
+  await resetModelCredentials(page, { except: ["cerebras"] });
 
   const catalog = await rpc<
     Array<{
@@ -932,9 +970,21 @@ test("chat settings search a long model list", async ({ page }, testInfo) => {
   const search = page.getByRole("combobox", { name: "Search models" });
   await expect(search).toBeFocused();
   const options = page.locator('[data-slot="command-list"]').getByRole("option");
-  await expect(options).toHaveCount(openRouter.length + 1);
+  // Connected catalogs are account-wide and other shard files connect their own
+  // providers, so compare against the catalog as it stands now.
+  const liveCatalog = await rpc<Array<{ id: string; placeholder?: boolean; provider: string }>>(
+    page,
+    "models/list",
+    {},
+  );
+  const liveOpenRouter = liveCatalog.filter(
+    (entry) => entry.provider === "openrouter" && !entry.placeholder,
+  );
+  // The picker also lists any other connected provider's catalog; assert the
+  // OpenRouter scale, then rely on the filtered searches below for exactness.
+  await expect.poll(() => options.count()).toBeGreaterThanOrEqual(liveOpenRouter.length + 1);
   // Rows show names, so this provider prefix can only match the model ids.
-  const anthropicIds = openRouter.filter((entry) => entry.id.includes("anthropic/")).length;
+  const anthropicIds = liveOpenRouter.filter((entry) => entry.id.includes("anthropic/")).length;
   expect(anthropicIds).toBeGreaterThan(0);
   await search.fill("ANTHROPIC/");
   await expect(options).toHaveCount(anthropicIds);
@@ -962,6 +1012,7 @@ test("chat settings search a long model list", async ({ page }, testInfo) => {
     page,
     "bots/list",
     {},
+    spaceHeaders,
   );
   expect(bots.find((bot) => bot.name === "Chief")).toMatchObject({
     modelProvider: "openrouter",
@@ -1011,6 +1062,10 @@ test("a Claude subscription folds the key form and bots move to the space defaul
 }, testInfo) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
   const stamp = Date.now();
+  // Own Space: the shared first bot may already carry a saved model, which would
+  // join Archie and Inbox in the "bots have their own model" count.
+  const spaceId = await createIsolatedSpace(page, `Subscription ${stamp}`);
+  const spaceHeaders = { "x-rakazo-space-id": spaceId };
   await signup(page, `subscription-${stamp}@rakazo.test`, "password12", "Subscription Preview");
   await completeOnboarding(page);
   const catalog = await rpc<Array<{ provider: string; id: string; placeholder?: boolean }>>(
@@ -1022,12 +1077,17 @@ test("a Claude subscription folds the key form and bots move to the space defaul
   if (!claude) throw new Error("catalog has no Anthropic model");
   const pinned = new Map<string, string>();
   for (const name of ["Archie", "Inbox"]) {
-    const bot = await rpc<{ id: string }>(page, "bots/create", {
-      name,
-      title: "",
-      description: "",
-      notifyOnFinish: true,
-    });
+    const bot = await rpc<{ id: string }>(
+      page,
+      "bots/create",
+      {
+        name,
+        title: "",
+        description: "",
+        notifyOnFinish: true,
+      },
+      spaceHeaders,
+    );
     pinned.set(bot.id, name);
   }
   // A signed-in subscription and bots with their own model, without a live provider.

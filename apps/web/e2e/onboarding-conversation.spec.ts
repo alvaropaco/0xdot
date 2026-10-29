@@ -1,5 +1,12 @@
 import { expect, type Page, test } from "@playwright/test";
-import { captureScreenshot, completeOnboarding, openUserSettings, rpc, signup } from "./helpers";
+import {
+  captureScreenshot,
+  completeOnboarding,
+  createIsolatedSpace,
+  openUserSettings,
+  rpc,
+  signup,
+} from "./helpers";
 
 function slackCard(page: Page) {
   return page.getByRole("group", { name: "Slack connection" });
@@ -9,6 +16,9 @@ test("focus choice suggests apps and preserves a completed connection", async ({
   page,
 }, testInfo) => {
   const stamp = Date.now();
+  // A fresh Space gives this test its own first-bot thread, so the focus card is
+  // unanswered and still shows every option.
+  const spaceId = await createIsolatedSpace(page, `Focus choice ${stamp}`);
   await signup(page, `onboarding-${stamp}@rakazo.test`, "password12", "Robin");
   await completeOnboarding(page);
 
@@ -66,6 +76,7 @@ test("focus choice suggests apps and preserves a completed connection", async ({
         page,
         "connections/list",
         {},
+        { "x-rakazo-space-id": spaceId },
       );
       return connections.some(
         (connection) => connection.provider === "SLACK" && connection.status === "connected",
@@ -83,6 +94,7 @@ test("focus choice suggests apps and preserves a completed connection", async ({
 
 test("focus choice follows Simplified Chinese UI locale", async ({ page }, testInfo) => {
   const stamp = Date.now();
+  await createIsolatedSpace(page, `Focus choice zh-CN ${stamp}`);
   await signup(page, `onboarding-zh-cn-${stamp}@rakazo.test`, "password12", "Robin");
   await completeOnboarding(page);
 
@@ -107,6 +119,7 @@ test("focus choice follows Simplified Chinese UI locale", async ({ page }, testI
 });
 
 test("choice refresh failures leave options available for retry", async ({ page }) => {
+  await createIsolatedSpace(page, `Choice retry ${Date.now()}`);
   await signup(page, `choice-refresh-${Date.now()}@rakazo.test`, "password12", "Choice Retry");
   await completeOnboarding(page);
   const choice = page.getByRole("button", { name: /Day-to-day work/ });

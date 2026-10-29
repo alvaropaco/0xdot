@@ -1,6 +1,37 @@
 import type { Locator, Page } from "@playwright/test";
 import { expect, test } from "@playwright/test";
-import { captureScreenshot, completeOnboarding, openNewSpace, signup } from "./helpers";
+import {
+  activeBotId,
+  captureScreenshot,
+  completeOnboarding,
+  createIsolatedSpace,
+  openNewSpace,
+  rpc,
+  signup,
+} from "./helpers";
+
+/** Failed runs this bot already has; the shared first bot accumulates them. */
+async function countFailedRuns(page: Page, botId: string, headers?: Record<string, string>) {
+  const { runs } = await rpc<{ runs: Array<{ botId: string; status: string }> }>(
+    page,
+    "runs/list",
+    { filter: "recent" },
+    headers,
+  );
+  return runs.filter((run) => run.botId === botId && run.status === "failed").length;
+}
+
+/** A reload only re-presents a failure the server has already committed. */
+async function waitForFailedRun(
+  page: Page,
+  botId: string,
+  failedBefore: number,
+  headers?: Record<string, string>,
+) {
+  await expect
+    .poll(async () => countFailedRuns(page, botId, headers))
+    .toBeGreaterThan(failedBefore);
+}
 
 function isPresented(error: Locator) {
   return error.evaluate((element) => {
@@ -70,6 +101,10 @@ test("a failed run is visible once without returning after reload", async ({ pag
 
 test("a covered run error is not remembered until it is presented", async ({ page }, testInfo) => {
   const stamp = Date.now();
+  // Own Space: the failed run must stay this chat's newest terminal run, and the
+  // shared first bot keeps collecting newer runs from other specs.
+  const spaceId = await createIsolatedSpace(page, `Covered failure ${stamp}`);
+  const spaceHeaders = { "x-rakazo-space-id": spaceId };
   await signup(page, `covered-run-failure-${stamp}@rakazo.test`, "password12", "Covered Failure");
   await completeOnboarding(page);
   await page.setViewportSize({ width: 390, height: 844 });
@@ -84,9 +119,11 @@ test("a covered run error is not remembered until it is presented", async ({ pag
   await sendButton.evaluate((button) => (button as HTMLButtonElement).click());
 
   const error = page.getByTestId("composer-error");
+  const failedBefore = await countFailedRuns(page, activeBotId(page), spaceHeaders);
   await expect(error).toContainText("The model provider returned an error.", { timeout: 30_000 });
   expect(await isPresented(error)).toBe(false);
   await captureScreenshot(page, testInfo, "run-error-covered-by-mobile-navigation");
+  await waitForFailedRun(page, activeBotId(page), failedBefore, spaceHeaders);
   await page.reload();
   await expect(page.getByTestId("shell-root")).toHaveAttribute("data-ready", "true");
   await expect(error).toBeVisible();

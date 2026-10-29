@@ -1,6 +1,15 @@
 import type { Page, TestInfo } from "@playwright/test";
 import { expect, test } from "@playwright/test";
-import { activeBotId, captureScreenshot, completeOnboarding, rpc, signup } from "./helpers";
+import {
+  activeBotId,
+  captureScreenshot,
+  completeOnboarding,
+  createIsolatedSpace,
+  rpc,
+  signup,
+} from "./helpers";
+
+const SPACE_HEADER = "x-rakazo-space-id";
 
 test("shows peer chips in transcript and opens view-only peer chat", async ({ page }, testInfo) => {
   const stamp = Date.now();
@@ -120,18 +129,27 @@ const relayText = "Here's what Researcher found: done. i handled: peer-fold-alph
  * marker in Researcher's chat.
  */
 async function openFoldedPeerReply(page: Page, name: string, testInfo: TestInfo) {
+  // A fresh Space keeps this test's Chief thread free of other specs' peer
+  // receipts and messages, so single-occurrence assertions hold.
+  const spaceId = await createIsolatedSpace(page, `Peer fold ${name} ${Date.now()}`);
+  const spaceHeaders = { [SPACE_HEADER]: spaceId };
   await signup(page, `${name}-${Date.now()}@rakazo.test`, "password12", "Peer Fold");
   await completeOnboarding(page);
   await page.goto("/app");
   await page.waitForURL(/\/app\/[^/]+$/);
 
-  const researcher = await rpc<{ id: string }>(page, "bots/create", {
-    name: "Researcher",
-    title: "",
-    description: "",
-    instructions: "",
-    notifyOnFinish: true,
-  });
+  const researcher = await rpc<{ id: string }>(
+    page,
+    "bots/create",
+    {
+      name: "Researcher",
+      title: "",
+      description: "",
+      instructions: "",
+      notifyOnFinish: true,
+    },
+    spaceHeaders,
+  );
   await page.reload();
   const chiefComposer = page.getByRole("combobox", { name: "Message Chief" });
   await chiefComposer.fill("message the bot named Researcher saying peer-fold-alpha");
@@ -296,17 +314,26 @@ test("folds a peer run's reply under its marker and keeps its ask inline", async
 test("answers a message sent while the bot works on another bot's request", async ({
   page,
 }, testInfo) => {
+  // A fresh Space keeps this test's runs off the shared Chief, so run-to-run
+  // attribution below sees only this test's traffic.
+  const spaceId = await createIsolatedSpace(page, `Peer busy ${Date.now()}`);
+  const spaceHeaders = { [SPACE_HEADER]: spaceId };
   await signup(page, `peer-busy-${Date.now()}@rakazo.test`, "password12", "Peer Busy");
   await completeOnboarding(page);
   await page.goto("/app");
   await page.waitForURL(/\/app\/[^/]+$/);
-  const researcher = await rpc<{ id: string }>(page, "bots/create", {
-    name: "Researcher",
-    title: "",
-    description: "",
-    instructions: "",
-    notifyOnFinish: true,
-  });
+  const researcher = await rpc<{ id: string }>(
+    page,
+    "bots/create",
+    {
+      name: "Researcher",
+      title: "",
+      description: "",
+      instructions: "",
+      notifyOnFinish: true,
+    },
+    spaceHeaders,
+  );
   await page.reload();
   const chief = page.getByRole("combobox", { name: "Message Chief" });
   await chief.fill("message the bot named Researcher saying work for 8 seconds");
@@ -320,6 +347,7 @@ test("answers a message sent while the bot works on another bot's request", asyn
           page,
           "threads/messages",
           { botId: researcher.id, includePeerRuns: true },
+          spaceHeaders,
         );
         return history.messages.some((message) =>
           message.blocks.some((block) => block.kind === "bot_message_received"),
@@ -344,7 +372,7 @@ test("answers a message sent while the bot works on another bot's request", asyn
       runId?: string;
       blocks: Array<{ kind: string; text?: string }>;
     }>;
-  }>(page, "threads/messages", { botId: researcher.id, includePeerRuns: true });
+  }>(page, "threads/messages", { botId: researcher.id, includePeerRuns: true }, spaceHeaders);
   const peerRunId = held.messages.find((message) =>
     message.blocks.some((block) => block.kind === "bot_message_received"),
   )?.runId;
@@ -374,7 +402,7 @@ test("answers a message sent while the bot works on another bot's request", asyn
   ).toHaveCount(0);
   const returned = await rpc<{
     messages: Array<{ blocks: Array<{ kind: string; text?: string }> }>;
-  }>(page, "threads/messages", { botId: researcher.id, includePeerRuns: true });
+  }>(page, "threads/messages", { botId: researcher.id, includePeerRuns: true }, spaceHeaders);
   const sentToChief = returned.messages.flatMap((message) =>
     message.blocks.filter((block) => block.kind === "bot_message_sent").map((b) => b.text ?? ""),
   );

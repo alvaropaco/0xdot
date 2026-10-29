@@ -1,7 +1,7 @@
 import type { Page } from "@playwright/test";
 import { expect, test } from "@playwright/test";
 import type { Bot, Routine } from "@rakazo/contracts";
-import { activeBotId, captureScreenshot, completeOnboarding, rpc, signup } from "./helpers";
+import { captureScreenshot, completeOnboarding, createNamedBot, rpc, signup } from "./helpers";
 
 async function addScheduleTrigger(page: Page, freq: string) {
   await page.getByRole("button", { name: "Add trigger" }).click();
@@ -13,10 +13,13 @@ async function saveAndReturn(page: Page, procedure: "routines/create" | "routine
   const saved = page.waitForResponse(
     (response) => response.url().includes(`/rpc/${procedure}`) && response.ok(),
   );
-  await page.getByRole("button", { name: "Save", exact: true }).click();
+  // Scope to the routine panel: sidebar rows echo message previews, and a preview
+  // containing "back" would otherwise join this lookup.
+  const panel = page.getByTestId("side-panel");
+  await panel.getByRole("button", { name: "Save", exact: true }).click();
   const response = await saved;
-  await expect(page.getByRole("button", { name: "Save", exact: true })).toBeEnabled();
-  await page.getByRole("button", { name: "Back" }).click();
+  await expect(panel.getByRole("button", { name: "Save", exact: true })).toBeEnabled();
+  await panel.getByRole("button", { name: "Back" }).click();
   return response.request().postDataJSON().json;
 }
 
@@ -26,7 +29,9 @@ test("routine editing updates in place, preserves timezone, deletion persists, a
   const stamp = Date.now();
   await signup(page, `routine-crud-${stamp}@rakazo.test`, "password12", "Routine CRUD");
   await completeOnboarding(page);
-  const botId = activeBotId(page);
+  // This test's own bot: routine lists on the shared first bot accumulate
+  // across the shard's specs, so exact list assertions need a private bot.
+  const botId = await createNamedBot(page, `Routine editor ${stamp}`);
 
   const created = await rpc<Routine>(page, "routines/create", {
     botId,
@@ -110,24 +115,32 @@ test("routine editing updates in place, preserves timezone, deletion persists, a
     modelId: null,
     thinkingLevel: null,
   });
+  // Pick Cerebras: a small catalog no other spec in this shard connects, so the
+  // account-wide credential is never contested or torn down mid-run.
+  const catalog = await rpc<Array<{ provider: string; id: string; placeholder?: boolean }>>(
+    page,
+    "models/list",
+    {},
+  );
+  const pickModel = catalog.find((entry) => entry.provider === "cerebras" && !entry.placeholder);
+  if (!pickModel) throw new Error("catalog has no Cerebras model");
   await rpc(page, "models/connect", {
-    provider: "openai-compatible",
+    provider: "cerebras",
     apiKey: "fake-routine-model-key",
-    modelId: "llama-3.3-70b",
-    baseUrl: "http://127.0.0.1:8090/v1",
-    thinkingLevel: "low",
-    reasoning: true,
+    modelId: pickModel.id,
   });
   await page.getByRole("button", { name: /Model check/ }).click();
   await page.getByRole("button", { name: "Advanced", exact: true }).click();
-  await modelSelect.selectOption("openai-compatible::llama-3.3-70b");
+  await modelSelect.selectOption(`cerebras::${pickModel.id}`);
   await page.keyboard.press("Escape");
   expect(await saveAndReturn(page, "routines/update")).toMatchObject({
-    modelProvider: "openai-compatible",
-    modelId: "llama-3.3-70b",
+    modelProvider: "cerebras",
+    modelId: pickModel.id,
     thinkingLevel: null,
   });
-  await expect(page.getByRole("button", { name: /Model check/ })).toContainText(" · llama-3.3-70b");
+  await expect(page.getByRole("button", { name: /Model check/ })).toContainText(
+    ` · ${pickModel.id}`,
+  );
 
   await page.getByRole("button", { name: /Model check/ }).click();
   await page.locator("label:has-text('Name') input").fill("Renamed model check");
@@ -137,7 +150,7 @@ test("routine editing updates in place, preserves timezone, deletion persists, a
 
   // The deleted routine stays gone after a reload.
   await page.reload();
-  await expect(page.getByPlaceholder("Message Chief")).toBeVisible();
+  await expect(page.getByPlaceholder("Message Routine editor")).toBeVisible();
   expect((await rpc<Routine[]>(page, "routines/list", { botId })).map((r) => r.name)).toEqual([
     "Renamed model check",
   ]);
@@ -148,7 +161,8 @@ test("invalid advanced cron is rejected without creating a routine", async ({ pa
   const stamp = Date.now();
   await signup(page, `routine-invalid-${stamp}@rakazo.test`, "password12", "Invalid Routine");
   await completeOnboarding(page);
-  const botId = activeBotId(page);
+  // Own bot: the shared first bot already holds other tests' routines.
+  const botId = await createNamedBot(page, `Routine invalid ${stamp}`);
 
   await page.getByRole("button", { name: "Agent computer", exact: true }).click();
   await page.getByRole("button", { name: "Create Routine" }).click();
@@ -169,7 +183,8 @@ test("a successful routine create is not reported as failed when refresh fails",
   const stamp = Date.now();
   await signup(page, `routine-refresh-${stamp}@rakazo.test`, "password12", "Routine Refresh");
   await completeOnboarding(page);
-  const botId = activeBotId(page);
+  // Own bot: the shared first bot already holds other tests' routines.
+  const botId = await createNamedBot(page, `Routine refresh ${stamp}`);
 
   await page.getByRole("button", { name: "Agent computer", exact: true }).click();
   await page.getByRole("button", { name: "Create Routine" }).click();
@@ -207,7 +222,8 @@ test("switching bots while a routine save is pending does not reopen stale state
   const stamp = Date.now();
   await signup(page, `routine-switch-${stamp}@rakazo.test`, "password12", "Routine Switch");
   await completeOnboarding(page);
-  const firstBotId = activeBotId(page);
+  // Own first bot: routines created on the shared first bot never go away.
+  const firstBotId = await createNamedBot(page, `Routine host ${stamp}`);
   const secondBot = await rpc<Bot>(page, "bots/create", {
     name: "Second",
     title: "",
@@ -305,7 +321,7 @@ test("switching bots while a routine save is pending does not reopen stale state
   );
 
   const botList = page.locator("aside").first();
-  await botList.getByRole("button", { name: /^Chief/ }).click();
+  await botList.getByRole("button", { name: /^Routine host/ }).click();
   await staleListIntercepted;
   await botList.getByRole("button", { name: /^Second/ }).click();
   await page.waitForURL(new RegExp(`/app/${secondBot.id}$`));
@@ -339,7 +355,8 @@ test("change-trigger screenshot walkthrough", async ({ page }, testInfo) => {
   const stamp = Date.now();
   await signup(page, `routine-walkthrough-${stamp}@rakazo.test`, "password12", "Routine Watch");
   await completeOnboarding(page);
-  const botId = activeBotId(page);
+  // Own bot: the walkthrough asserts an empty routine list before creating one.
+  const botId = await createNamedBot(page, `Routine watch ${stamp}`);
 
   await page.getByRole("button", { name: "Agent computer", exact: true }).click();
   await expect(page.getByRole("button", { name: "Create Routine" })).toBeVisible();

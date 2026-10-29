@@ -16,13 +16,57 @@ export function activeBotId(page: Page) {
   return id;
 }
 
-export async function rpc<T>(page: Page, procedure: string, body: unknown): Promise<T> {
-  const response = await page.request.post(`/rpc/${procedure}`, { data: { json: body } });
+export async function rpc<T>(
+  page: Page,
+  procedure: string,
+  body: unknown,
+  headers?: Record<string, string>,
+): Promise<T> {
+  const response = await page.request.post(`/rpc/${procedure}`, {
+    data: { json: body },
+    headers,
+  });
   const parsed = (await response.json()) as { json?: T; error?: { message?: string } };
   if (!response.ok() || parsed.error) {
     throw new Error(`${procedure} ${response.status()}: ${parsed.error?.message ?? "failed"}`);
   }
   return parsed.json as T;
+}
+
+/**
+ * There is one deployment owner, so connected model credentials are shared by
+ * every spec in a shard. Tests that assert a pristine catalog (a native Model
+ * select, one Connected marker, exact option counts) disconnect everything
+ * first instead of assuming they run before the first connect. Providers in
+ * `except` are left alone, so a spec can keep its own small fixture credential
+ * without other specs' resets tearing it down mid-run.
+ */
+export async function resetModelCredentials(page: Page, options: { except?: string[] } = {}) {
+  const keep = new Set(options.except ?? []);
+  const credentials = await rpc<Array<{ provider: string }>>(page, "models/credentials", {});
+  for (const provider of [...new Set(credentials.map((entry) => entry.provider))]) {
+    if (keep.has(provider)) continue;
+    await rpc(page, "models/disconnect", { provider });
+  }
+}
+
+/**
+ * Puts the page in its own Space for the rest of the test: the web app sends
+ * `x-rakazo-space-id` from this localStorage key on every request. Bots, bots'
+ * threads, onboarding state, and panel preferences stay out of the shared
+ * owner Space, so exact-count and thread-local assertions hold. Pass the
+ * returned id as the `x-rakazo-space-id` header on test-side `rpc` calls.
+ */
+export async function createIsolatedSpace(page: Page, name: string): Promise<string> {
+  const space = await rpc<{ id: string }>(page, "spaces/create", { name });
+  await page.addInitScript((spaceId) => {
+    try {
+      window.localStorage.setItem("rakazo:space-id", spaceId);
+    } catch {
+      // Storage unavailable: the test will fail on its first cross-space assertion.
+    }
+  }, space.id);
+  return space.id;
 }
 
 export async function completeOnboarding(page: Page, testInfo?: TestInfo) {

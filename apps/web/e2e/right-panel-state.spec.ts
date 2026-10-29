@@ -116,15 +116,20 @@ test("reload restores the selected routine and scopes preferences to the chat", 
   await page.route("**/rpc/routines/list", async (route) => {
     const response = await route.fetch();
     await routinesReady;
-    await route.fulfill({ response });
+    // Navigation may abort the held request before it is released.
+    await route.fulfill({ response }).catch(() => undefined);
   });
   await page.goto(`/app/${botId}?routine=${routine.id}`);
   await page.getByTestId("bot-settings-trigger").click();
   await expect(page).not.toHaveURL(/routine=/);
-  const listResponse = page.waitForResponse("**/rpc/routines/list");
+  // The held request may be aborted while navigation cancels the link, so give
+  // the fulfillment a bounded window and move on either way.
+  const listResponse = page
+    .waitForResponse("**/rpc/routines/list", { timeout: 15_000 })
+    .catch(() => undefined);
   releaseRoutines();
   await listResponse;
-  await page.unrouteAll({ behavior: "wait" });
+  await page.unrouteAll();
   await expect(page.getByTestId("side-panel")).toHaveAttribute("data-panel", "settings");
   await waitForStoredPanel(page, "settings");
   await page.reload();

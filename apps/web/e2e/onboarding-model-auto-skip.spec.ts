@@ -1,9 +1,11 @@
 import { expect, test } from "@playwright/test";
-import { captureScreenshot, signup } from "./helpers";
+import { captureScreenshot, createIsolatedSpace, signup } from "./helpers";
 
 test("onboarding skips model connect when a default model is already available", async ({
   page,
 }, testInfo) => {
+  // A fresh Space has no first bot yet, so onboarding really creates one.
+  await createIsolatedSpace(page, `Model auto skip ${Date.now()}`);
   await page.route("**/rpc/me", async (route) => {
     const response = await route.fetch();
     const body = (await response.json()) as { json: Record<string, unknown> };

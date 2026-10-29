@@ -50,7 +50,9 @@ test("Slack message and GitHub event triggers persist their settings", async ({
   });
   await captureScreenshot(page, testInfo, "routine-slack-message");
 
-  await page.getByRole("button", { name: "Back" }).click();
+  // Scope to the routine panel: sidebar rows echo message previews, and a
+  // preview containing "back" would otherwise join this lookup.
+  await page.getByTestId("side-panel").getByRole("button", { name: "Back" }).click();
   await page.getByRole("button", { name: "Create Routine" }).click();
   await page.getByPlaceholder("Name this routine").fill("Review repository events");
   await page
@@ -79,7 +81,8 @@ test("Korean webhook routine keeps technical field labels in English", async ({
   await signup(page, `routine-ko-${stamp}@rakazo.test`, "password12", userName);
   await completeOnboarding(page);
 
-  await page.getByRole("button", { name: new RegExp(userName) }).click();
+  // The account menu trigger is a generic icon; the name is no longer a button.
+  await page.getByTestId("user-menu-trigger").click();
   await page.getByRole("button", { name: "Settings" }).click();
   const settings = page.getByTestId("user-settings");
   await settings.getByTestId("ui-locale-select").click();
@@ -123,10 +126,12 @@ test("routine test-run completes and survives reload", async ({ page }, testInfo
   const saved = page.waitForResponse(
     (response) => response.url().includes("/rpc/routines/create") && response.ok(),
   );
-  await page.getByRole("button", { name: "Save" }).click();
+  const panel = page.getByTestId("side-panel");
+  // Scoped to the routine panel; see the note about sidebar preview text above.
+  await panel.getByRole("button", { name: "Save" }).click();
   await saved;
-  await expect(page.getByRole("button", { name: "Save" })).toBeEnabled();
-  await page.getByRole("button", { name: "Back" }).click();
+  await expect(panel.getByRole("button", { name: "Save" })).toBeEnabled();
+  await panel.getByRole("button", { name: "Back" }).click();
   const routine = page.getByRole("button", { name: /Daily verification/ });
   await expect(routine).toContainText("Weekdays at 9:00 AM");
   await captureScreenshot(page, testInfo, "33-routine-scheduled");
@@ -136,6 +141,23 @@ test("routine test-run completes and survives reload", async ({ page }, testInfo
   await expect(page.getByText(/routine-run-now-ok/i).first()).toBeVisible({ timeout: 30_000 });
   await expect(page.getByRole("button", { name: "Send" })).toBeVisible({ timeout: 30_000 });
   await captureScreenshot(page, testInfo, "34-routine-run-completed");
+
+  // The history panel reads the run list once when it opens and does not retry,
+  // so wait until the run row is committed before the reload.
+  const botId = activeBotId(page);
+  await expect
+    .poll(async () => {
+      const routines = await rpc<Array<{ id: string; name: string }>>(page, "routines/list", {
+        botId,
+      });
+      const daily = routines.find((entry) => entry.name === "Daily verification");
+      if (!daily) return 0;
+      const history = await rpc<{ runs: Array<{ id: string }> }>(page, "routines/history", {
+        routineId: daily.id,
+      });
+      return history.runs.length;
+    })
+    .toBeGreaterThanOrEqual(1);
 
   await page.reload();
   await expect(page.getByText(/routine-run-now-ok/i).first()).toBeVisible();
