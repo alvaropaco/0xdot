@@ -153,6 +153,7 @@ vi.mock("../lib/tauri/chat-bridge", () => ({
       tools: [],
     })),
     mcpRemove: vi.fn(async () => true),
+    export: vi.fn(async () => "# Thread\n\n**You:** hello\n"),
   },
   onChatDelta: vi.fn(async (handler: (payload: ChatDeltaPayload) => void) => {
     deltaHandlers.push(handler);
@@ -414,5 +415,12 @@ describe("LocalChat", () => {
     clickButton("Remove");
     await flush();
     expect(chat.mcpRemove).toHaveBeenCalledWith("fs");
+  });
+
+  it("exports the current thread as markdown", async () => {
+    await renderChat();
+    clickButton("Export");
+    await flush();
+    expect(chat.export).toHaveBeenCalledWith("t1");
   });
 });

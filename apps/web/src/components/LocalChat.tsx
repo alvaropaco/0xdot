@@ -354,6 +354,21 @@ export function LocalChat() {
     setMcpServers((current) => current.filter((row) => row.id !== id));
   };
 
+  const exportThread = async () => {
+    if (!threadId) return;
+    try {
+      const markdown = await chat.export(threadId);
+      const url = URL.createObjectURL(new Blob([markdown], { type: "text/markdown" }));
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `thread-${threadId}.md`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+    } catch (cause) {
+      setError((cause as Error).message);
+    }
+  };
+
   const decide = (taskId: string, approved: boolean) => {
     void chat.decide(taskId, approved).catch((cause: Error) => setError(cause.message));
   };
@@ -444,6 +459,15 @@ export function LocalChat() {
             onClick={() => void toggleMcp()}
           >
             MCP
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => void exportThread()}
+            disabled={!threadId}
+            aria-label="Export thread as markdown"
+          >
+            Export
           </Button>
           <Button size="sm" variant="ghost" onClick={() => setShowSettings((current) => !current)}>
             Model

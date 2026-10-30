@@ -160,8 +160,18 @@ accounts, billing); mobile push; hosted providers.
   start keeps its definition and shows as offline. The agent already routes
   `mcp.call_tool` through the approval gate, so MCP tools the model uses are
   gated like the rest of the computer.
-- **M6 — next:** the parity sweep (groups, boards, export, links, voice,
-  messaging) - per group, port or consciously cut from the desktop product.
+- **M6 — done (2026-10-30), the parity sweep resolved per group:**
+  - **Thread export — ported.** `chat_export` renders the transcript
+    (conversation turns plus activity log lines) as Markdown; the chat's
+    Export button downloads it.
+  - **Groups/boards, share links, voice, messaging — cut from the desktop
+    product.** Groups and share links were multi-party/server concepts the
+    account removal had already hollowed out; voice and messaging ride hosted
+    providers and cloud relays. The single-owner binary keeps one source of
+    truth: SQLite threads, the sandboxed computer, memory, routines and MCP.
+    Nothing TS-side was deleted - those surfaces remain in `apps/web` for
+    remote mode - so any can be revived as a Rust port later.
+- **All milestones (M0-M6) done.** v0.3.8 is the full local-first build.
 
 ## Risks
 

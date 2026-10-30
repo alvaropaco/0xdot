@@ -80,6 +80,7 @@ export const chat = {
   mcpConnect: (id: string, command: string, args: string[], env: Record<string, string>) =>
     unwrap(chatCommands.chatMcpConnect(id, command, args, env)),
   mcpRemove: (id: string) => unwrap(chatCommands.chatMcpRemove(id)),
+  export: (threadId: string) => unwrap(chatCommands.chatExport(threadId)),
 };
 
 function on<T>(topic: string, handler: (payload: T) => void): Promise<() => void> {

@@ -218,6 +218,31 @@ pub async fn chat_usage(store: State<'_, ChatStore>) -> Result<UsageTotals, Stri
     store.usage_totals().await
 }
 
+/// Renders a thread as Markdown: conversation turns in order, with tool and
+/// approval activity as compact log lines. This is the local export surface -
+/// what the "export thread" action downloads.
+fn render_markdown(thread: &crate::chat_store::ChatThread, messages: &[ChatMessage]) -> String {
+    let mut out = format!("# {}\n\n", if thread.title.is_empty() { "Thread" } else { &thread.title });
+    for message in messages {
+        match message.kind.as_str() {
+            "tool" | "approval" => out.push_str(&format!("> {}\n", message.content)),
+            _ => {
+                let speaker = if message.role == "user" { "You" } else { "Assistant" };
+                out.push_str(&format!("**{speaker}:** {}\n\n", message.content));
+            }
+        }
+    }
+    out
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn chat_export(store: State<'_, ChatStore>, thread_id: String) -> Result<String, String> {
+    let thread = store.thread(&thread_id).await?;
+    let messages = store.messages(&thread_id).await?;
+    Ok(render_markdown(&thread, &messages))
+}
+
 /// A persisted MCP server joined with its live state. `env` values never
 /// cross the IPC boundary - only their key names (M5).
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -411,6 +436,7 @@ pub fn bindings() -> tauri_specta::Builder<tauri::Wry> {
         chat_mcp_list,
         chat_mcp_connect,
         chat_mcp_remove,
+        chat_export,
         chat_send
     ])
 }
@@ -565,5 +591,47 @@ mod bindings_export {
                 &out,
             )
             .expect("failed to write TypeScript bindings");
+    }
+}
+
+#[cfg(test)]
+mod markdown_tests {
+    use super::render_markdown;
+    use crate::chat_store::{ChatMessage, ChatThread};
+
+    fn message(id: &str, kind: &str, role: &str, content: &str) -> ChatMessage {
+        ChatMessage {
+            id: id.into(),
+            thread_id: "t1".into(),
+            role: role.into(),
+            content: content.into(),
+            failed: false,
+            kind: kind.into(),
+            payload: String::new(),
+            created_at: "now".into(),
+        }
+    }
+
+    #[test]
+    fn exports_conversation_with_activity_as_log_lines() {
+        let thread = ChatThread {
+            id: "t1".into(),
+            bot_id: "b1".into(),
+            title: "Standup".into(),
+            created_at: "c".into(),
+            updated_at: "u".into(),
+        };
+        let markdown = render_markdown(
+            &thread,
+            &[
+                message("1", "chat", "user", "hello"),
+                message("2", "tool", "assistant", "Ran git.status"),
+                message("3", "chat", "assistant", "hi!"),
+            ],
+        );
+        assert!(markdown.starts_with("# Standup"));
+        assert!(markdown.contains("**You:** hello"));
+        assert!(markdown.contains("> Ran git.status"));
+        assert!(markdown.contains("**Assistant:** hi!"));
     }
 }

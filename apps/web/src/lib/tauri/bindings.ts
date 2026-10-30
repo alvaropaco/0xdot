@@ -43,6 +43,7 @@ export const commands = {
 	 */
 	chatMcpConnect: (id: string, command: string, args: string[], env: { [key in string]: string }) => typedError<McpServerView, string>(__TAURI_INVOKE("chat_mcp_connect", { id, command, args, env })),
 	chatMcpRemove: (id: string) => typedError<boolean, string>(__TAURI_INVOKE("chat_mcp_remove", { id })),
+	chatExport: (threadId: string) => typedError<string, string>(__TAURI_INVOKE("chat_export", { threadId })),
 	/**
 	 *  Persists the user message, accepts immediately, and drives the agent turn
 	 *  in the background: deltas stream through events, tool and approval activity
