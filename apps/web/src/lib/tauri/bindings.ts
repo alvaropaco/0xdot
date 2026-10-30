@@ -30,6 +30,11 @@ export const commands = {
 	 *  User-initiated, so it does not go through the agent's approval gate.
 	 */
 	chatScreenshot: () => typedError<Screenshot, string>(__TAURI_INVOKE("chat_screenshot")),
+	chatRoutinesList: () => typedError<ScheduledRoutine_Serialize[], string>(__TAURI_INVOKE("chat_routines_list")),
+	chatRoutineCreate: (botId: string, name: string, prompt: string, model: string, intervalSeconds: number) => typedError<ScheduledRoutine_Serialize, string>(__TAURI_INVOKE("chat_routine_create", { botId, name, prompt, model, intervalSeconds })),
+	chatRoutineRemove: (routineId: string) => typedError<boolean, string>(__TAURI_INVOKE("chat_routine_remove", { routineId })),
+	chatRoutineSetEnabled: (routineId: string, enabled: boolean) => typedError<null, string>(__TAURI_INVOKE("chat_routine_set_enabled", { routineId, enabled })),
+	chatUsage: () => typedError<UsageTotals, string>(__TAURI_INVOKE("chat_usage")),
 	/**
 	 *  Persists the user message, accepts immediately, and drives the agent turn
 	 *  in the background: deltas stream through events, tool and approval activity
@@ -84,6 +89,46 @@ export type ChatThread = {
 	updatedAt: string,
 };
 
+/**
+ *  A scheduled routine (M4). Timestamps are RFC3339 text; `model` is a
+ *  per-routine override that falls back to the bot/default when empty.
+ */
+export type ScheduledRoutine = ScheduledRoutine_Serialize | ScheduledRoutine_Deserialize;
+
+/**
+ *  A scheduled routine (M4). Timestamps are RFC3339 text; `model` is a
+ *  per-routine override that falls back to the bot/default when empty.
+ */
+export type ScheduledRoutine_Deserialize = {
+	id: string,
+	botId: string,
+	name: string,
+	prompt: string,
+	model: string,
+	intervalSeconds: number,
+	enabled: boolean,
+	lastRunAt?: string | null,
+	nextRunAt: string,
+	createdAt: string,
+};
+
+/**
+ *  A scheduled routine (M4). Timestamps are RFC3339 text; `model` is a
+ *  per-routine override that falls back to the bot/default when empty.
+ */
+export type ScheduledRoutine_Serialize = {
+	id: string,
+	botId: string,
+	name: string,
+	prompt: string,
+	model: string,
+	intervalSeconds: number,
+	enabled: boolean,
+	lastRunAt: string | null,
+	nextRunAt: string,
+	createdAt: string,
+};
+
 export type Screenshot = {
 	/**  `image/png` today; keeps the payload self-describing. */
 	mime: string,
@@ -104,6 +149,13 @@ export type SearchHit = {
 
 export type SendAccepted = {
 	messageId: string,
+};
+
+/**  Cumulative token usage across every recorded turn (M4). */
+export type UsageTotals = {
+	turns: number,
+	inputTokens: number,
+	outputTokens: number,
 };
 
 /* Tauri Specta runtime */

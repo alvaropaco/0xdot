@@ -4,6 +4,7 @@
 //! where the server used JSONB. The pool lives in the app data directory so a
 //! thread survives an app restart, which is the M1 acceptance bar.
 
+use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions};
@@ -71,6 +72,32 @@ pub struct SearchHit {
     /// A short excerpt with the matched terms marked.
     pub snippet: String,
     pub created_at: String,
+}
+
+/// A scheduled routine (M4). Timestamps are RFC3339 text; `model` is a
+/// per-routine override that falls back to the bot/default when empty.
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ScheduledRoutine {
+    pub id: String,
+    pub bot_id: String,
+    pub name: String,
+    pub prompt: String,
+    pub model: String,
+    pub interval_seconds: i32,
+    pub enabled: bool,
+    pub last_run_at: Option<String>,
+    pub next_run_at: String,
+    pub created_at: String,
+}
+
+/// Cumulative token usage across every recorded turn (M4).
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageTotals {
+    pub turns: i32,
+    pub input_tokens: i32,
+    pub output_tokens: i32,
 }
 
 impl ChatStore {
@@ -368,6 +395,137 @@ impl ChatStore {
         let key = self.setting(KEY_API_KEY).await?;
         Ok(base.zip(key).map(|(base, key)| (base.trim_end_matches('/').to_string(), key)))
     }
+
+    pub async fn create_routine(
+        &self,
+        bot_id: &str,
+        name: &str,
+        prompt: &str,
+        model: &str,
+        interval_seconds: i32,
+    ) -> Result<ScheduledRoutine, String> {
+        self.bot(bot_id).await?;
+        let interval_seconds = interval_seconds.max(1);
+        let now = Utc::now();
+        let routine = ScheduledRoutine {
+            id: uuid::Uuid::new_v4().to_string(),
+            bot_id: bot_id.to_string(),
+            name: name.to_string(),
+            prompt: prompt.to_string(),
+            model: model.to_string(),
+            interval_seconds,
+            enabled: true,
+            last_run_at: None,
+            next_run_at: (now + Duration::seconds(interval_seconds as i64)).to_rfc3339(),
+            created_at: now.to_rfc3339(),
+        };
+        sqlx::query("INSERT INTO routines (id, bot_id, name, prompt, model, interval_seconds, enabled, last_run_at, next_run_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+            .bind(&routine.id)
+            .bind(&routine.bot_id)
+            .bind(&routine.name)
+            .bind(&routine.prompt)
+            .bind(&routine.model)
+            .bind(routine.interval_seconds)
+            .bind(routine.enabled)
+            .bind(&routine.last_run_at)
+            .bind(&routine.next_run_at)
+            .bind(&routine.created_at)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| e.to_string())?;
+        Ok(routine)
+    }
+
+    pub async fn routines(&self) -> Result<Vec<ScheduledRoutine>, String> {
+        let rows = sqlx::query("SELECT id, bot_id, name, prompt, model, interval_seconds, enabled, last_run_at, next_run_at, created_at FROM routines ORDER BY created_at")
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| e.to_string())?;
+        Ok(rows.iter().map(routine_from_row).collect())
+    }
+
+    pub async fn set_routine_enabled(&self, id: &str, enabled: bool) -> Result<(), String> {
+        sqlx::query("UPDATE routines SET enabled = ? WHERE id = ?")
+            .bind(enabled)
+            .bind(id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub async fn remove_routine(&self, id: &str) -> Result<bool, String> {
+        let result = sqlx::query("DELETE FROM routines WHERE id = ?")
+            .bind(id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| e.to_string())?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    /// Returns the enabled routines whose `next_run_at` has come due, and for
+    /// each one records this run and schedules the next. The scheduler owns the
+    /// tick clock, so the store stays a thin persistence seam.
+    pub async fn take_due_routines(&self, now: DateTime<Utc>) -> Result<Vec<ScheduledRoutine>, String> {
+        let due = self.routines().await?.into_iter().filter(|routine| {
+            routine.enabled && DateTime::parse_from_rfc3339(&routine.next_run_at).map(|next| next <= now).unwrap_or(false)
+        });
+        let mut fired = Vec::new();
+        for routine in due {
+            let next = now + Duration::seconds(routine.interval_seconds as i64);
+            sqlx::query("UPDATE routines SET last_run_at = ?, next_run_at = ? WHERE id = ?")
+                .bind(now.to_rfc3339())
+                .bind(next.to_rfc3339())
+                .bind(&routine.id)
+                .execute(&self.pool)
+                .await
+                .map_err(|e| e.to_string())?;
+            fired.push(ScheduledRoutine { last_run_at: Some(now.to_rfc3339()), next_run_at: next.to_rfc3339(), ..routine });
+        }
+        Ok(fired)
+    }
+
+    pub async fn log_usage(&self, thread_id: &str, bot_id: &str, model: &str, input_tokens: i64, output_tokens: i64) -> Result<(), String> {
+        sqlx::query("INSERT INTO usage (id, thread_id, bot_id, model, input_tokens, output_tokens, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
+            .bind(uuid::Uuid::new_v4().to_string())
+            .bind(thread_id)
+            .bind(bot_id)
+            .bind(model)
+            .bind(input_tokens)
+            .bind(output_tokens)
+            .bind(Self::now())
+            .execute(&self.pool)
+            .await
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub async fn usage_totals(&self) -> Result<UsageTotals, String> {
+        let row = sqlx::query("SELECT COUNT(*) AS turns, COALESCE(SUM(input_tokens), 0) AS input, COALESCE(SUM(output_tokens), 0) AS output FROM usage")
+            .fetch_one(&self.pool)
+            .await
+            .map_err(|e| e.to_string())?;
+        Ok(UsageTotals {
+            turns: row.get::<i64, _>("turns") as i32,
+            input_tokens: row.get::<i64, _>("input") as i32,
+            output_tokens: row.get::<i64, _>("output") as i32,
+        })
+    }
+}
+
+fn routine_from_row(row: &sqlx::sqlite::SqliteRow) -> ScheduledRoutine {
+    ScheduledRoutine {
+        id: row.get("id"),
+        bot_id: row.get("bot_id"),
+        name: row.get("name"),
+        prompt: row.get("prompt"),
+        model: row.get("model"),
+        interval_seconds: row.get::<i32, _>("interval_seconds"),
+        enabled: row.get::<i64, _>("enabled") != 0,
+        last_run_at: row.get("last_run_at"),
+        next_run_at: row.get("next_run_at"),
+        created_at: row.get("created_at"),
+    }
 }
 
 fn title_seed(role: &str, content: &str) -> String {
@@ -429,6 +587,31 @@ mod tests {
         let threads = store.threads(&bot.id).await.unwrap();
         assert_eq!(threads[0].title, "hello world");
         assert_eq!(store.bots().await.unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn routine_due_tick_reschedules_and_usage_totals_accumulate() {
+        let store = ChatStore::in_memory().await.unwrap();
+        let bot = store.create_bot("Chief", "", "m").await.unwrap();
+        store.create_routine(&bot.id, "Standup", "summarize yesterday", "", 60).await.unwrap();
+
+        // A routine created 60s in the future is not due yet.
+        assert!(store.take_due_routines(Utc::now()).await.unwrap().is_empty());
+
+        // One minute later exactly one fires, rescheduled by its interval.
+        let fired = store.take_due_routines(Utc::now() + Duration::seconds(61)).await.unwrap();
+        assert_eq!(fired.len(), 1);
+        assert_eq!(fired[0].name, "Standup");
+        assert!(fired[0].last_run_at.is_some());
+        assert!(store.take_due_routines(Utc::now() + Duration::seconds(62)).await.unwrap().is_empty());
+
+        store.set_routine_enabled(&fired[0].id, false).await.unwrap();
+        assert!(!store.routines().await.unwrap()[0].enabled);
+
+        store.log_usage("t1", &bot.id, "gpt-mini", 100, 30).await.unwrap();
+        store.log_usage("t2", &bot.id, "gpt-mini", 5, 2).await.unwrap();
+        let totals = store.usage_totals().await.unwrap();
+        assert_eq!(totals, UsageTotals { turns: 2, input_tokens: 105, output_tokens: 32 });
     }
 
     #[tokio::test]

@@ -14,9 +14,11 @@ export type {
   ChatMessage,
   ChatSettings,
   ChatThread,
+  ScheduledRoutine,
   Screenshot,
   SearchHit,
   SendAccepted,
+  UsageTotals,
 } from "./bindings";
 
 /** Mirror of apps/desktop-tauri chat.rs; event payloads are not code-generated. */
@@ -61,6 +63,18 @@ export const chat = {
   workspaceFiles: (botId: string) => unwrap(chatCommands.chatWorkspaceFiles(botId)),
   workspaceRead: (botId: string, path: string) =>
     unwrap(chatCommands.chatWorkspaceRead(botId, path)),
+  listRoutines: () => unwrap(chatCommands.chatRoutinesList()),
+  createRoutine: (
+    botId: string,
+    name: string,
+    prompt: string,
+    model: string,
+    intervalSeconds: number,
+  ) => unwrap(chatCommands.chatRoutineCreate(botId, name, prompt, model, intervalSeconds)),
+  removeRoutine: (routineId: string) => unwrap(chatCommands.chatRoutineRemove(routineId)),
+  setRoutineEnabled: (routineId: string, enabled: boolean) =>
+    unwrap(chatCommands.chatRoutineSetEnabled(routineId, enabled)),
+  usage: () => unwrap(chatCommands.chatUsage()),
 };
 
 function on<T>(topic: string, handler: (payload: T) => void): Promise<() => void> {

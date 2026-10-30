@@ -105,6 +105,35 @@ vi.mock("../lib/tauri/chat-bridge", () => ({
     ]),
     workspaceFiles: vi.fn(async () => ["notes.md", "out/report.html"]),
     workspaceRead: vi.fn(async () => "# report body"),
+    listRoutines: vi.fn(async () => [
+      {
+        id: "r1",
+        botId: "b1",
+        name: "Standup",
+        prompt: "summarize",
+        model: "",
+        intervalSeconds: 3600,
+        enabled: true,
+        lastRunAt: null,
+        nextRunAt: "2026-01-01T01:00:00Z",
+        createdAt: "2026-01-01T00:00:00Z",
+      },
+    ]),
+    createRoutine: vi.fn(async () => ({
+      id: "r2",
+      botId: "b1",
+      name: "Digest",
+      prompt: "wrap up",
+      model: "",
+      intervalSeconds: 60,
+      enabled: true,
+      lastRunAt: null,
+      nextRunAt: "2026-01-01T00:01:00Z",
+      createdAt: "2026-01-01T00:00:00Z",
+    })),
+    removeRoutine: vi.fn(async () => true),
+    setRoutineEnabled: vi.fn(async () => undefined),
+    usage: vi.fn(async () => ({ turns: 3, inputTokens: 120, outputTokens: 45 })),
   },
   onChatDelta: vi.fn(async (handler: (payload: ChatDeltaPayload) => void) => {
     deltaHandlers.push(handler);
@@ -311,5 +340,35 @@ describe("LocalChat", () => {
     await flush();
     expect(chat.workspaceRead).toHaveBeenCalledWith("b1", "notes.md");
     expect(host.querySelector('[data-testid="file-content"]')?.textContent).toBe("# report body");
+  });
+
+  it("lists routines with usage totals and creates one", async () => {
+    await renderChat();
+    clickButton("Routines");
+    await flush();
+    expect(chat.listRoutines).toHaveBeenCalled();
+    const panel = host.querySelector('[data-testid="routines-panel"]');
+    expect(panel?.textContent).toContain("Standup");
+    expect(panel?.textContent).toContain("every 3600s");
+    expect(host.querySelector('[data-testid="usage-line"]')?.textContent).toContain(
+      "120 in / 45 out",
+    );
+
+    await typeInto('[aria-label="Routine name"]', "Digest");
+    await typeInto('[aria-label="Routine prompt"]', "wrap up");
+    await typeInto('[aria-label="Interval seconds"]', "60");
+    clickButton("Schedule");
+    await flush();
+    expect(chat.createRoutine).toHaveBeenCalledWith("b1", "Digest", "wrap up", "", 60);
+    expect(panel?.textContent).toContain("Digest");
+  });
+
+  it("pauses a routine through the toggle", async () => {
+    await renderChat();
+    clickButton("Routines");
+    await flush();
+    clickButton("Pause");
+    await flush();
+    expect(chat.setRoutineEnabled).toHaveBeenCalledWith("r1", false);
   });
 });

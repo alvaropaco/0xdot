@@ -136,7 +136,21 @@ accounts, billing); mobile push; hosted providers.
   an explicit `memory.recall` tool beside `memory.remember`. UI: a search box
   with cross-thread hits (clicking one jumps bots and threads), and a Files
   panel with file previews.
-- **M4 — next:** native scheduler for routines and usage totals.
+- **M4 — done (2026-10-30).** Routines and usage live in the same SQLite as the
+  chat (migration 0004). The native scheduler ticks `take_due_routines(now)`
+  every 5s and fires each due routine as a real chat turn on the routine's bot
+  in a fresh, searchable thread (`chat::fire_routine` → the shared
+  `start_turn` pipeline), so a routine run streams, gates on approvals and
+  records usage exactly like a manual message. The dead `routines.json` store
+  and its `routine_*` commands were removed; the UI's Routines panel lists,
+  creates, pauses and deletes routines and shows cumulative token usage
+  (`chat_usage`).
+  Also fixed a latent defect from M2/M3: the `chat_decide`/`chat_screenshot`/
+  `chat_search`/`chat_workspace_*` commands were registered in the tauri-specta
+  builder but not in tauri's `generate_handler!`, so they were uncallable at
+  runtime; unit + mocked-web tests don't cover IPC registration, so CI stayed
+  green. All chat commands are now registered and verified to be reachable.
+- **M5 — next:** local MCP (connect/list/call through the bridge).
 
 ## Risks
 

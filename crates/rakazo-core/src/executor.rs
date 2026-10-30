@@ -5,7 +5,7 @@
 
 use crate::{
     AgentId, AgentRuntime, MemoryQuery, MemoryStore, ModelMessage, ModelProvider, ModelRequest,
-    TaskId, ToolCall, ToolDefinition, ToolRegistry, ToolResult,
+    ModelUsage, TaskId, ToolCall, ToolDefinition, ToolRegistry, ToolResult,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -44,6 +44,10 @@ pub struct ExecutionOutput {
     pub content: String,
     pub tool_calls: usize,
     pub completed: bool,
+    /// Token usage summed across every model round of the turn; the provider
+    /// neutral boundary the desktop uses to record local usage totals.
+    pub input_tokens: u64,
+    pub output_tokens: u64,
 }
 
 #[derive(Debug, Error)]
@@ -141,6 +145,10 @@ impl<'a> AgentExecutor<'a> {
         messages.push(ModelMessage::user(input.prompt));
         let definitions: Vec<ToolDefinition> = self.tools.definitions().cloned().collect();
         let mut total_tool_calls = 0;
+        let mut usage = ModelUsage {
+            input_tokens: 0,
+            output_tokens: 0,
+        };
 
         for _round in 0..self.max_rounds {
             let stream = self.stream.clone();
@@ -161,6 +169,10 @@ impl<'a> AgentExecutor<'a> {
                     },
                 )
                 .map_err(|e| ExecutorError::Model(e.to_string()))?;
+            if let Some(round_usage) = &response.usage {
+                usage.input_tokens += round_usage.input_tokens;
+                usage.output_tokens += round_usage.output_tokens;
+            }
             if response.tool_calls.is_empty() {
                 self.runtime
                     .set_task_status(input.task_id, crate::TaskStatus::Completed)
@@ -169,6 +181,8 @@ impl<'a> AgentExecutor<'a> {
                     content: response.content,
                     tool_calls: total_tool_calls,
                     completed: true,
+                    input_tokens: usage.input_tokens,
+                    output_tokens: usage.output_tokens,
                 });
             }
             messages.push(ModelMessage::assistant(response.content.clone()));
@@ -455,6 +469,63 @@ mod tests {
                 tool_calls: vec![],
                 finish_reason: Some("stop".into()),
                 usage: None,
+            })
+        }
+    }
+
+    #[test]
+    fn aggregates_usage_across_model_rounds() {
+        let (runtime, task_id, tools) = setup(false);
+        let provider = CountingUsageProvider {
+            calls: Arc::new(Mutex::new(0)),
+        };
+        let output = AgentExecutor::new(&runtime, &provider, &tools, &FakeTools, &AutoApprove)
+            .execute(ExecutionInput {
+                task_id,
+                agent_id: runtime.snapshot().unwrap().agents[0].id,
+                model: "fake".into(),
+                prompt: "hello".into(),
+                system_prompt: None,
+                temperature: None,
+                max_tokens: None,
+            })
+            .unwrap();
+        // Two rounds, each reporting 10 input / 5 output tokens.
+        assert_eq!(output.input_tokens, 20);
+        assert_eq!(output.output_tokens, 10);
+    }
+
+    struct CountingUsageProvider {
+        calls: Arc<Mutex<usize>>,
+    }
+    impl ModelProvider for CountingUsageProvider {
+        fn complete(&self, _request: &ModelRequest) -> Result<ModelResponse, ModelError> {
+            let mut calls = self.calls.lock().unwrap();
+            *calls += 1;
+            let round = *calls;
+            Ok(ModelResponse {
+                content: if round == 1 {
+                    "thinking".into()
+                } else {
+                    "done".into()
+                },
+                tool_calls: if round == 1 {
+                    vec![ToolCall {
+                        name: "test.read".into(),
+                        arguments: serde_json::json!({}),
+                    }]
+                } else {
+                    vec![]
+                },
+                finish_reason: if round == 1 {
+                    None
+                } else {
+                    Some("stop".into())
+                },
+                usage: Some(ModelUsage {
+                    input_tokens: 10,
+                    output_tokens: 5,
+                }),
             })
         }
     }

@@ -9,7 +9,7 @@
 use crate::{
     agent_bridge,
     approval::ApprovalBroker,
-    chat_store::{Bot, ChatMessage, ChatStore, ChatThread, SearchHit, KEY_API_KEY, KEY_BASE_URL, KEY_DEFAULT_MODEL},
+    chat_store::{Bot, ChatMessage, ChatStore, ChatThread, ScheduledRoutine, SearchHit, UsageTotals, KEY_API_KEY, KEY_BASE_URL, KEY_DEFAULT_MODEL},
     mcp_state::McpState,
 };
 #[cfg(target_os = "macos")]
@@ -22,7 +22,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use specta::Type;
 use std::sync::Arc;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::sync::mpsc::UnboundedSender;
 
 /// A timeline entry handed from the blocking agent loop to the async writer.
@@ -181,6 +181,42 @@ pub async fn chat_search(store: State<'_, ChatStore>, query: String, limit: Opti
     store.search(&query, limit.unwrap_or(20).clamp(1, 50) as i64).await
 }
 
+#[tauri::command]
+#[specta::specta]
+pub async fn chat_routines_list(store: State<'_, ChatStore>) -> Result<Vec<ScheduledRoutine>, String> {
+    store.routines().await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn chat_routine_create(store: State<'_, ChatStore>, bot_id: String, name: String, prompt: String, model: String, interval_seconds: i32) -> Result<ScheduledRoutine, String> {
+    if name.trim().is_empty() || prompt.trim().is_empty() {
+        return Err("routine name and prompt are required".into());
+    }
+    if interval_seconds < 1 {
+        return Err("interval must be at least one second".into());
+    }
+    store.create_routine(&bot_id, name.trim(), prompt.trim(), model.trim(), interval_seconds).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn chat_routine_remove(store: State<'_, ChatStore>, routine_id: String) -> Result<bool, String> {
+    store.remove_routine(&routine_id).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn chat_routine_set_enabled(store: State<'_, ChatStore>, routine_id: String, enabled: bool) -> Result<(), String> {
+    store.set_routine_enabled(&routine_id, enabled).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn chat_usage(store: State<'_, ChatStore>) -> Result<UsageTotals, String> {
+    store.usage_totals().await
+}
+
 /// Lists the bot's workspace files (artifacts the agent wrote) recursively.
 /// The bot id is validated as a uuid before it becomes a path segment, so no
 /// caller can escape the workspaces directory.
@@ -281,30 +317,43 @@ pub fn bindings() -> tauri_specta::Builder<tauri::Wry> {
         chat_workspace_read,
         chat_decide,
         chat_screenshot,
+        chat_routines_list,
+        chat_routine_create,
+        chat_routine_remove,
+        chat_routine_set_enabled,
+        chat_usage,
         chat_send
     ])
 }
 
-/// Persists the user message, accepts immediately, and drives the agent turn
-/// in the background: deltas stream through events, tool and approval activity
-/// is written to the timeline, and the assistant reply is stored when the run
-/// finishes.
-#[tauri::command]
-#[specta::specta]
-pub async fn chat_send(app: AppHandle, store: State<'_, ChatStore>, mcp: State<'_, McpState>, approval: State<'_, ApprovalBroker>, thread_id: String, content: String) -> Result<SendAccepted, String> {
-    let store = store.inner().clone();
-    let mcp = mcp.inner().clone();
-    let broker = approval.inner().clone();
-    let thread = store.thread(&thread_id).await?;
-    let bot = store.bot(&thread.bot_id).await?;
+/// What the blocking agent loop hands back for the async tail: the reply text
+/// plus the model/usage so the turn can record token totals.
+struct TurnOutcome {
+    content: String,
+    model: String,
+    input_tokens: i64,
+    output_tokens: i64,
+}
+
+/// Shared turn pipeline for `chat_send` and the routine scheduler: resolve the
+/// thread's bot, persist the user message, run the agent loop on the blocking
+/// pool streaming deltas + tool/approval activity, then store the assistant
+/// reply and record usage. Returns once the turn is running (accepted).
+async fn start_turn(app: AppHandle, store: ChatStore, mcp: McpState, broker: ApprovalBroker, thread_id: String, content: String, model_override: Option<String>) -> Result<SendAccepted, String> {
     if content.trim().is_empty() {
         return Err("message is empty".into());
     }
+    let thread = store.thread(&thread_id).await?;
+    let bot = store.bot(&thread.bot_id).await?;
     let (base_url, api_key) = store.connection().await?.ok_or_else(|| "no model connection configured".to_string())?;
-    let model = store.resolve_model(&bot).await?;
+    let model = match model_override.filter(|value| !value.trim().is_empty()) {
+        Some(override_model) => override_model,
+        None => store.resolve_model(&bot).await?,
+    };
     // Memory is keyed by the bot id so what one conversation remembers is
     // available to every later thread with the same bot.
     let agent_id = uuid::Uuid::parse_str(&bot.id).map_err(|e| e.to_string())?;
+    let bot_id = bot.id.clone();
     let history_rows = store.transcript(&thread_id).await?;
     let user = store.append_message(&thread_id, "user", &content, false).await?;
     let history: Vec<ModelMessage> = history_rows.iter().filter_map(|message| match message.role.as_str() {
@@ -347,12 +396,14 @@ pub async fn chat_send(app: AppHandle, store: State<'_, ChatStore>, mcp: State<'
     let gate = Arc::new(ChatApprovalGate::new(broker, sender));
 
     let accepted = SendAccepted { message_id: user.id };
-    let run = tauri::async_runtime::spawn_blocking(move || -> Result<String, String> {
+    let run = tauri::async_runtime::spawn_blocking(move || -> Result<TurnOutcome, String> {
         let provider = agent_bridge::provider_from_connection(&base_url, &api_key)?;
         let (runtime, _registered, task) = agent_bridge::new_runtime_task(content.clone())?;
         let task_id = task.id;
         runtime.enqueue_task(task).map_err(|e| e.to_string())?;
-        agent_bridge::execute_with_runtime(&provider, runtime, agent_id, task_id, model, content, system_prompt, None, None, gate, workspace, memory_path, mcp, history, Some(stream), false, Some(observer)).map(|result| result.content)
+        let model_for_log = model.clone();
+        let result = agent_bridge::execute_with_runtime(&provider, runtime, agent_id, task_id, model, content, system_prompt, None, None, gate, workspace, memory_path, mcp, history, Some(stream), false, Some(observer))?;
+        Ok(TurnOutcome { content: result.content, model: model_for_log, input_tokens: result.input_tokens as i64, output_tokens: result.output_tokens as i64 })
     });
     let app_for_task = app.clone();
     tauri::async_runtime::spawn(async move {
@@ -365,8 +416,9 @@ pub async fn chat_send(app: AppHandle, store: State<'_, ChatStore>, mcp: State<'
         // the assistant message lands after its tool/approval rows.
         let _ = writer.await;
         match outcome {
-            Ok(text) => match store.append_message(&thread_id, "assistant", &text, false).await {
+            Ok(turn) => match store.append_message(&thread_id, "assistant", &turn.content, false).await {
                 Ok(message) => {
+                    let _ = store.log_usage(&message.thread_id, &bot_id, &turn.model, turn.input_tokens, turn.output_tokens).await;
                     let _ = app_for_task.emit(EVENT_DONE, ChatDone { thread_id, message_id: message.id });
                 }
                 Err(error) => {
@@ -381,6 +433,28 @@ pub async fn chat_send(app: AppHandle, store: State<'_, ChatStore>, mcp: State<'
         }
     });
     Ok(accepted)
+}
+
+/// Persists the user message, accepts immediately, and drives the agent turn
+/// in the background: deltas stream through events, tool and approval activity
+/// is written to the timeline, and the assistant reply is stored when the run
+/// finishes.
+#[tauri::command]
+#[specta::specta]
+pub async fn chat_send(app: AppHandle, store: State<'_, ChatStore>, mcp: State<'_, McpState>, approval: State<'_, ApprovalBroker>, thread_id: String, content: String) -> Result<SendAccepted, String> {
+    start_turn(app, store.inner().clone(), mcp.inner().clone(), approval.inner().clone(), thread_id, content, None).await
+}
+
+/// Fires one scheduled routine: opens a fresh thread on the routine's bot (the
+/// transcript stays findable via search) and runs its prompt as a turn. The
+/// native scheduler in `main.rs` calls this when a routine comes due.
+pub async fn fire_routine(app: &AppHandle, routine: &ScheduledRoutine) -> Result<(), String> {
+    let store = app.state::<ChatStore>().inner().clone();
+    let mcp = app.state::<McpState>().inner().clone();
+    let broker = app.state::<ApprovalBroker>().inner().clone();
+    let thread = store.create_thread(&routine.bot_id, &routine.name).await?;
+    let override_model = (!routine.model.trim().is_empty()).then(|| routine.model.clone());
+    start_turn(app.clone(), store, mcp, broker, thread.id, routine.prompt.clone(), override_model).await.map(|_| ())
 }
 
 #[cfg(test)]

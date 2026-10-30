@@ -9,8 +9,10 @@ import {
   onChatDelta,
   onChatDone,
   onChatFailed,
+  type ScheduledRoutine,
   type Screenshot,
   type SearchHit,
+  type UsageTotals,
 } from "../lib/tauri/chat-bridge";
 import { Shimmer } from "./ai/primitives";
 
@@ -64,6 +66,12 @@ export function LocalChat() {
   const [showFiles, setShowFiles] = useState(false);
   const [files, setFiles] = useState<string[]>([]);
   const [fileContent, setFileContent] = useState<{ path: string; content: string } | null>(null);
+  const [showRoutines, setShowRoutines] = useState(false);
+  const [routines, setRoutines] = useState<ScheduledRoutine[]>([]);
+  const [usage, setUsage] = useState<UsageTotals | null>(null);
+  const [routineName, setRoutineName] = useState("");
+  const [routinePrompt, setRoutinePrompt] = useState("");
+  const [routineInterval, setRoutineInterval] = useState("3600");
 
   // Events fire from the native runtime; a ref keeps the handlers reading the
   // thread the user is actually looking at, not the one they were captured on.
@@ -261,6 +269,49 @@ export function LocalChat() {
     }
   };
 
+  const refreshRoutines = async () => {
+    try {
+      const [rows, totals] = await Promise.all([chat.listRoutines(), chat.usage()]);
+      setRoutines(rows);
+      setUsage(totals);
+    } catch (cause) {
+      setError((cause as Error).message);
+    }
+  };
+
+  const toggleRoutines = async () => {
+    const next = !showRoutines;
+    setShowRoutines(next);
+    if (next) await refreshRoutines();
+  };
+
+  const addRoutine = async () => {
+    if (!botId || !routineName.trim() || !routinePrompt.trim()) return;
+    const interval = Math.max(1, Number.parseInt(routineInterval, 10) || 3600);
+    const created = await chat.createRoutine(
+      botId,
+      routineName.trim(),
+      routinePrompt.trim(),
+      "",
+      interval,
+    );
+    setRoutines((current) => [...current, created]);
+    setRoutineName("");
+    setRoutinePrompt("");
+  };
+
+  const toggleRoutine = async (routine: ScheduledRoutine) => {
+    await chat.setRoutineEnabled(routine.id, !routine.enabled);
+    setRoutines((current) =>
+      current.map((row) => (row.id === routine.id ? { ...row, enabled: !routine.enabled } : row)),
+    );
+  };
+
+  const removeRoutine = async (routineId: string) => {
+    await chat.removeRoutine(routineId);
+    setRoutines((current) => current.filter((row) => row.id !== routineId));
+  };
+
   const decide = (taskId: string, approved: boolean) => {
     void chat.decide(taskId, approved).catch((cause: Error) => setError(cause.message));
   };
@@ -337,6 +388,13 @@ export function LocalChat() {
             onClick={() => void toggleFiles()}
           >
             Files
+          </Button>
+          <Button
+            size="sm"
+            variant={showRoutines ? "secondary" : "ghost"}
+            onClick={() => void toggleRoutines()}
+          >
+            Routines
           </Button>
           <Button size="sm" variant="ghost" onClick={() => setShowSettings((current) => !current)}>
             Model
@@ -421,6 +479,67 @@ export function LocalChat() {
             >
               {fileContent.content}
             </pre>
+          )}
+        </section>
+      )}
+
+      {showRoutines && (
+        <section
+          className="mt-3 flex flex-col gap-2 rounded-lg border border-border bg-card p-3"
+          data-testid="routines-panel"
+        >
+          {routines.map((routine) => (
+            <div key={routine.id} className="flex items-center gap-2 text-sm">
+              <span className="font-medium">{routine.name}</span>
+              <span className="text-xs text-muted-foreground">
+                every {routine.intervalSeconds}s
+              </span>
+              <span className="ms-auto flex gap-1">
+                <Button size="sm" variant="ghost" onClick={() => void toggleRoutine(routine)}>
+                  {routine.enabled ? "Pause" : "Resume"}
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => void removeRoutine(routine.id)}>
+                  Delete
+                </Button>
+              </span>
+            </div>
+          ))}
+          {routines.length === 0 && <p className="text-sm text-muted-foreground">No routines.</p>}
+          <div className="flex flex-wrap items-end gap-2">
+            <Input
+              aria-label="Routine name"
+              placeholder="Name"
+              value={routineName}
+              onChange={(event) => setRoutineName(event.target.value)}
+              className="w-32"
+            />
+            <Input
+              aria-label="Routine prompt"
+              placeholder="Prompt"
+              value={routinePrompt}
+              onChange={(event) => setRoutinePrompt(event.target.value)}
+              className="w-56"
+            />
+            <Input
+              aria-label="Interval seconds"
+              placeholder="Interval"
+              type="number"
+              value={routineInterval}
+              onChange={(event) => setRoutineInterval(event.target.value)}
+              className="w-24"
+            />
+            <Button
+              size="sm"
+              onClick={() => void addRoutine()}
+              disabled={!routineName.trim() || !routinePrompt.trim()}
+            >
+              Schedule
+            </Button>
+          </div>
+          {usage && (
+            <p data-testid="usage-line" className="text-xs text-muted-foreground">
+              {usage.turns} turns · {usage.inputTokens} in / {usage.outputTokens} out tokens
+            </p>
           )}
         </section>
       )}
