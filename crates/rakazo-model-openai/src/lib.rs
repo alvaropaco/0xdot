@@ -322,7 +322,6 @@ struct Usage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::BufRead;
 
     fn feed(lines: &[&str]) -> StreamAccumulator {
         let mut accumulator = StreamAccumulator::default();
