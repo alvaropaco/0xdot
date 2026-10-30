@@ -80,6 +80,17 @@ pub enum ModelError {
 /// the domain model remains independent of provider SDKs.
 pub trait ModelProvider: Send + Sync {
     fn complete(&self, request: &ModelRequest) -> Result<ModelResponse, ModelError>;
+
+    /// Completion that can surface incremental assistant text through
+    /// `on_delta`. Providers without a streaming wire format inherit the
+    /// synchronous `complete` and simply emit no deltas.
+    fn complete_with_delta(
+        &self,
+        request: &ModelRequest,
+        _on_delta: &mut dyn FnMut(&str),
+    ) -> Result<ModelResponse, ModelError> {
+        self.complete(request)
+    }
 }
 
 #[cfg(test)]

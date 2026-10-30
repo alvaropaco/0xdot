@@ -10,7 +10,7 @@ rust-version = "1.90"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["specta"] }
 tauri-plugin-deep-link = "2.6.1"
 tauri-plugin-single-instance = { version = "2.5.3", features = ["deep-link"] }
 tauri-plugin-updater = "2"
@@ -20,6 +20,12 @@ tauri-plugin-updater = "2"
 rust-ini = "=0.21.1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+sqlx = { version = "0.8", default-features = false, features = ["sqlite", "runtime-tokio", "migrate", "macros"] }
+# The rcs pin each other: tauri-specta requires exactly this specta, whose
+# TypeScript backend is only 0.0.13 (0.0.14 already targets the next rc).
+specta = { version = "=2.0.0-rc.26", features = ["derive"] }
+specta-typescript = "=0.0.13"
+tauri-specta = { version = "=2.0.0-rc.26", features = ["derive", "typescript"] }
 url = "2"
 uuid = { version = "1", features = ["v4"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
@@ -27,6 +33,9 @@ tokio = { version = "1", features = ["time"] }
 rakazo-core = { path = "../../../crates/rakazo-core" }
 rakazo-host = { path = "../../../crates/rakazo-host" }
 rakazo-model-openai = { path = "../../../crates/rakazo-model-openai" }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "time"] }
 
 [features]
 default = ["custom-protocol"]

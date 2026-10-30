@@ -8,7 +8,11 @@ use crate::{
     TaskId, ToolCall, ToolDefinition, ToolRegistry, ToolResult,
 };
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use thiserror::Error;
+
+/// Receives incremental assistant text while a model round streams.
+pub type StreamCallback = Arc<dyn Fn(&str) + Send + Sync>;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum ApprovalDecision {
@@ -63,6 +67,8 @@ pub struct AgentExecutor<'a> {
     tool_executor: &'a dyn ToolExecutor,
     approval: &'a dyn ApprovalGate,
     memory: Option<&'a dyn MemoryStore>,
+    history: Vec<ModelMessage>,
+    stream: Option<StreamCallback>,
     max_rounds: usize,
 }
 
@@ -81,6 +87,8 @@ impl<'a> AgentExecutor<'a> {
             tool_executor,
             approval,
             memory: None,
+            history: Vec::new(),
+            stream: None,
             max_rounds: 8,
         }
     }
@@ -94,6 +102,18 @@ impl<'a> AgentExecutor<'a> {
         self
     }
 
+    /// Prior conversation replayed verbatim before the new user prompt.
+    pub fn with_history(mut self, history: Vec<ModelMessage>) -> Self {
+        self.history = history;
+        self
+    }
+
+    /// Streams assistant text of every model round through `callback`.
+    pub fn with_stream(mut self, callback: StreamCallback) -> Self {
+        self.stream = Some(callback);
+        self
+    }
+
     pub fn execute(&self, input: ExecutionInput) -> Result<ExecutionOutput, ExecutorError> {
         self.runtime
             .set_task_status(input.task_id, crate::TaskStatus::Running)
@@ -102,6 +122,7 @@ impl<'a> AgentExecutor<'a> {
         if let Some(system) = input.system_prompt.as_deref() {
             messages.push(ModelMessage::system(system));
         }
+        messages.extend(self.history.iter().cloned());
         if let Some(memory) = self.memory {
             let matches = memory
                 .search(&MemoryQuery {
@@ -122,15 +143,23 @@ impl<'a> AgentExecutor<'a> {
         let mut total_tool_calls = 0;
 
         for _round in 0..self.max_rounds {
+            let stream = self.stream.clone();
             let response = self
                 .provider
-                .complete(&ModelRequest {
-                    model: input.model.clone(),
-                    messages: messages.clone(),
-                    tools: definitions.clone(),
-                    temperature: input.temperature,
-                    max_tokens: input.max_tokens,
-                })
+                .complete_with_delta(
+                    &ModelRequest {
+                        model: input.model.clone(),
+                        messages: messages.clone(),
+                        tools: definitions.clone(),
+                        temperature: input.temperature,
+                        max_tokens: input.max_tokens,
+                    },
+                    &mut |delta| {
+                        if let Some(callback) = &stream {
+                            callback(delta);
+                        }
+                    },
+                )
                 .map_err(|e| ExecutorError::Model(e.to_string()))?;
             if response.tool_calls.is_empty() {
                 self.runtime
@@ -337,6 +366,97 @@ mod tests {
             runtime.snapshot().unwrap().tasks[0].status,
             crate::TaskStatus::Failed
         );
+    }
+
+    #[test]
+    fn history_is_replayed_before_the_new_prompt() {
+        let (runtime, task_id, tools) = setup(false);
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let recorder = SeenProvider { seen: seen.clone() };
+        AgentExecutor::new(&runtime, &recorder, &tools, &FakeTools, &AutoApprove)
+            .with_history(vec![
+                ModelMessage::user("earlier"),
+                ModelMessage::assistant("noted"),
+            ])
+            .execute(ExecutionInput {
+                task_id,
+                agent_id: runtime.snapshot().unwrap().agents[0].id,
+                model: "fake".into(),
+                prompt: "hello".into(),
+                system_prompt: None,
+                temperature: None,
+                max_tokens: None,
+            })
+            .unwrap();
+        let roles = seen.lock().unwrap();
+        assert_eq!(
+            *roles,
+            vec![
+                crate::MessageRole::User,
+                crate::MessageRole::Assistant,
+                crate::MessageRole::User
+            ]
+        );
+    }
+
+    #[test]
+    fn stream_callback_receives_model_deltas() {
+        let (runtime, task_id, tools) = setup(false);
+        let deltas = Arc::new(Mutex::new(String::new()));
+        let sink = deltas.clone();
+        let provider = DeltaProvider;
+        let output = AgentExecutor::new(&runtime, &provider, &tools, &FakeTools, &AutoApprove)
+            .with_stream(Arc::new(move |text: &str| {
+                sink.lock().unwrap().push_str(text);
+            }))
+            .execute(ExecutionInput {
+                task_id,
+                agent_id: runtime.snapshot().unwrap().agents[0].id,
+                model: "fake".into(),
+                prompt: "hello".into(),
+                system_prompt: None,
+                temperature: None,
+                max_tokens: None,
+            })
+            .unwrap();
+        assert_eq!(output.content, "hel lo");
+        assert_eq!(*deltas.lock().unwrap(), "hel lo");
+    }
+
+    struct SeenProvider {
+        seen: Arc<Mutex<Vec<crate::MessageRole>>>,
+    }
+    impl ModelProvider for SeenProvider {
+        fn complete(&self, request: &ModelRequest) -> Result<ModelResponse, ModelError> {
+            *self.seen.lock().unwrap() = request.messages.iter().map(|m| m.role.clone()).collect();
+            Ok(ModelResponse {
+                content: "ok".into(),
+                tool_calls: vec![],
+                finish_reason: Some("stop".into()),
+                usage: None,
+            })
+        }
+    }
+
+    struct DeltaProvider;
+    impl ModelProvider for DeltaProvider {
+        fn complete(&self, _request: &ModelRequest) -> Result<ModelResponse, ModelError> {
+            unreachable!("the executor must prefer complete_with_delta")
+        }
+        fn complete_with_delta(
+            &self,
+            _request: &ModelRequest,
+            on_delta: &mut dyn FnMut(&str),
+        ) -> Result<ModelResponse, ModelError> {
+            on_delta("hel");
+            on_delta(" lo");
+            Ok(ModelResponse {
+                content: "hel lo".into(),
+                tool_calls: vec![],
+                finish_reason: Some("stop".into()),
+                usage: None,
+            })
+        }
     }
 
     #[test]

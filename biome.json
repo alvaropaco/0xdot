@@ -13,6 +13,7 @@
       "!**/build",
       "!**/coverage",
       "!**/design",
+      "!**/apps/web/src/lib/tauri/bindings.ts",
       "!**/packages/db/src/generated",
       "!**/apps/mobile/.expo",
       "!**/playwright-report",
@@ -63,7 +64,10 @@
   },
   "overrides": [
     {
-      "includes": ["packages/ui-web/src/components/ui/**", "packages/ui-web/src/shadcn.css"],
+      "includes": [
+        "packages/ui-web/src/components/ui/**",
+        "packages/ui-web/src/shadcn.css"
+      ],
       "linter": {
         "rules": {
           "a11y": {
@@ -96,7 +100,10 @@
       }
     },
     {
-      "includes": ["packages/logging/src/console-sink.ts", "packages/logging/src/sink-guard.ts"],
+      "includes": [
+        "packages/logging/src/console-sink.ts",
+        "packages/logging/src/sink-guard.ts"
+      ],
       "linter": {
         "rules": {
           "suspicious": {

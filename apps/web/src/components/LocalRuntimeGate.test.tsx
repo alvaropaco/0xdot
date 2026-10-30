@@ -5,6 +5,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { RuntimeHealth } from "../lib/tauri-runtime";
 import { LocalRuntimeGate } from "./LocalRuntimeGate";
 
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
 function stubInvoke(impl: (command: string) => Promise<unknown>) {
   window.__TAURI__ = {
     core: { invoke: vi.fn((command: string) => impl(command)) },
@@ -60,5 +62,24 @@ describe("LocalRuntimeGate", () => {
       await Promise.resolve();
     });
     expect(host.textContent).toContain("runtime unreachable");
+  });
+
+  it("renders the native chat once the runtime reports chat-ready", async () => {
+    // The chat drives real IPC; the local bridge rejects without a Tauri
+    // runtime, which the chat surfaces as an error rather than a crash.
+    stubInvoke(
+      async (): Promise<RuntimeHealth> => ({
+        mode: "local",
+        version: "0.1.0-test",
+        origin: null,
+        rpcReady: true,
+      }),
+    );
+    renderGate();
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(host.querySelector('[data-testid="local-chat"]')).toBeTruthy();
   });
 });

@@ -34,7 +34,7 @@ pub use computer_tools::{
 pub use event::{Event, EventBus};
 pub use executor::{
     AgentExecutor, ApprovalDecision, ApprovalGate, ExecutionInput, ExecutionOutput, ExecutorError,
-    ToolExecutor,
+    StreamCallback, ToolExecutor,
 };
 pub use mcp::{McpClient, McpError, McpServerConfig, McpTool};
 pub use memory::{MemoryError, MemoryId, MemoryMatch, MemoryQuery, MemoryRecord, MemoryStore};

@@ -101,9 +101,23 @@ accounts, billing); mobile push; hosted providers.
   `LocalRuntimeGate`, and the embedded runtime answers `runtime_health`
   (mode/version/`rpcReady`). Saving an origin keeps the previous remote mode as
   an explicit opt-in; `local` clears it.
-- **M1 — next:** the vertical chat slice. SQLite store, streaming via Tauri
-  channels/events, tauri-specta bindings, tool loop (remember + workspace
-  files), BYOK OpenAI-compatible connection.
+- **M1 — done (2026-10-29).** The vertical chat slice proves UI-over-IPC
+  replaces oRPC end to end, with no server in the loop. `chat_store.rs` is an
+  sqlx + SQLite store (checked-in migration) for bots/threads/messages and the
+  BYOK connection; `runtime_health` now reports `rpcReady: true`, and the web
+  gate renders `LocalChat` (create bot, open thread, send, live-streamed reply)
+  against the `chat_*` tauri-specta commands in `chat.rs`. The agent loop runs
+  on the blocking pool: `complete_with_delta` streams OpenAI-compatible SSE
+  through the core executor into `chat://delta` events, the transcript is
+  persisted when the turn finishes, and a test proves the thread survives a
+  reopen of the same database file. Tools in the loop: `memory.remember`
+  (per-bot, keyed by bot id) and the sandboxed workspace `read/write/list`.
+  Bindings are regenerated deterministically by
+  `cargo test -p rakazo-desktop generate_typescript_bindings`; event payloads
+  are mirrored by hand in the web bridge (only the command surface is generated).
+- **M2 — next:** the computer. `rakazo-host` becomes the sandbox "computer":
+  shell commands with approvals, file tree, screenshots; takeover UX; approval
+  rules and auto-review ported.
 
 ## Risks
 

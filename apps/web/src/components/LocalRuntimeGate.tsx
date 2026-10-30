@@ -1,12 +1,14 @@
 import { useEffect, useState } from "react";
 import { fetchRuntimeHealth, type RuntimeHealth } from "../lib/tauri-runtime";
+import { LocalChat } from "./LocalChat";
 
 type Status = { kind: "checking" } | { kind: "ok"; health: RuntimeHealth } | { kind: "error" };
 
 /**
  * First screen of the local-first desktop: the UI shipped inside the app
- * talking to the embedded Rust runtime. Until the runtime answers chat
- * (milestone M1) this is the whole app.
+ * talking to the embedded Rust runtime. Once the runtime answers with chat
+ * RPC (milestone M1) the whole window is the native chat; otherwise this is
+ * the health card.
  */
 export function LocalRuntimeGate() {
   const [status, setStatus] = useState<Status>({ kind: "checking" });
@@ -21,14 +23,16 @@ export function LocalRuntimeGate() {
     };
   }, []);
 
+  if (status.kind === "ok" && status.health.rpcReady) {
+    return <LocalChat />;
+  }
+
   const healthLine =
     status.kind === "checking"
       ? "Health: checking…"
       : status.kind === "error"
         ? "Health: runtime unreachable"
-        : status.health.rpcReady
-          ? "Health: online"
-          : "Health: online — native chat arrives with the runtime milestone.";
+        : "Health: online — native chat arrives with the runtime milestone.";
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-background text-foreground">

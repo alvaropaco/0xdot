@@ -12,8 +12,9 @@ pub struct RuntimeHealth {
     pub version: String,
     /// The remote origin in remote mode; None locally.
     pub origin: Option<String>,
-    /// False until the runtime exposes chat RPC (milestone M1). The UI keys its
-    /// startup screen off this flag.
+    /// True once the runtime exposes the chat commands (milestone M1). The UI
+    /// keys its startup screen off this flag: local renders the native chat,
+    /// remote keeps the oRPC surface.
     #[serde(rename = "rpcReady")]
     pub rpc_ready: bool,
 }
@@ -25,6 +26,6 @@ pub fn runtime_health(app: tauri::AppHandle) -> RuntimeHealth {
         mode: if origin.is_some() { "remote" } else { "local" },
         version: app.package_info().version.to_string(),
         origin,
-        rpc_ready: false,
+        rpc_ready: true,
     }
 }
