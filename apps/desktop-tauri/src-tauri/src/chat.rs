@@ -1,27 +1,42 @@
-//! Local chat commands (migration plan M1): the IPC surface the bundled web
+//! Local chat commands (migration plan M1/M2): the IPC surface the bundled web
 //! UI drives instead of oRPC. Threads persist in SQLite; a turn runs the Rust
-//! agent loop on the blocking pool and streams assistant text back through
-//! `chat://delta` events, so the transcript survives a restart.
+//! agent loop on the blocking pool and streams assistant text through
+//! `chat://delta` events, while tool activity and approval requests land in the
+//! transcript timeline. The workspace file tools auto-approve; host filesystem
+//! writes and computer/shell tools block on the shared `ApprovalBroker` until
+//! the UI decides (the M2 takeover path). No server involved.
 
-use crate::{agent_bridge, chat_store::{Bot, ChatMessage, ChatStore, ChatThread, KEY_API_KEY, KEY_BASE_URL, KEY_DEFAULT_MODEL}, mcp_state::McpState};
-use rakazo_core::{ApprovalDecision, ApprovalGate, ExecutorError, MessageRole, ModelMessage, StreamCallback, TaskId, ToolCall};
+use crate::{
+    agent_bridge,
+    approval::ApprovalBroker,
+    chat_store::{Bot, ChatMessage, ChatStore, ChatThread, KEY_API_KEY, KEY_BASE_URL, KEY_DEFAULT_MODEL},
+    mcp_state::McpState,
+};
+#[cfg(target_os = "macos")]
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
+use rakazo_core::{
+    ApprovalDecision, ApprovalGate, ExecutorError, MessageRole, ModelMessage, StreamCallback, TaskId,
+    ToolCall, ToolResult,
+};
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use specta::Type;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, State};
+use tokio::sync::mpsc::UnboundedSender;
 
-/// The chat workspace lives under the app's own data directory, so the slice
-/// can auto-approve file writes today; the approval UI arrives with M2.
-pub struct AutoApprove;
-impl ApprovalGate for AutoApprove {
-    fn request(&self, _task_id: TaskId, _call: &ToolCall) -> Result<ApprovalDecision, ExecutorError> {
-        Ok(ApprovalDecision::Approved)
-    }
+/// A timeline entry handed from the blocking agent loop to the async writer.
+/// `kind` is `tool` or `approval`; `payload` is structured JSON the UI renders.
+struct ActivityEvent {
+    kind: String,
+    content: String,
+    payload: String,
 }
 
 pub const EVENT_DELTA: &str = "chat://delta";
 pub const EVENT_DONE: &str = "chat://done";
 pub const EVENT_ERROR: &str = "chat://error";
+pub const EVENT_ACTIVITY: &str = "chat://activity";
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -58,6 +73,46 @@ pub struct ChatSettings {
 #[serde(rename_all = "camelCase")]
 pub struct SendAccepted {
     pub message_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct Screenshot {
+    /// `image/png` today; keeps the payload self-describing.
+    pub mime: String,
+    pub base64: String,
+}
+
+/// `ApprovalGate` that surfaces a mutating tool to the UI and blocks on the
+/// shared broker. It records the request and the decision as timeline rows via
+/// the activity channel, then delegates the blocking wait to `ApprovalBroker`,
+/// which the `chat_decide` command resolves.
+struct ChatApprovalGate {
+    broker: ApprovalBroker,
+    sender: UnboundedSender<ActivityEvent>,
+}
+
+impl ChatApprovalGate {
+    fn new(broker: ApprovalBroker, sender: UnboundedSender<ActivityEvent>) -> Self {
+        Self { broker, sender }
+    }
+
+    fn emit(&self, content: String, payload: serde_json::Value) {
+        let _ = self.sender.send(ActivityEvent { kind: "approval".into(), content, payload: payload.to_string() });
+    }
+}
+
+impl ApprovalGate for ChatApprovalGate {
+    fn request(&self, task_id: TaskId, call: &ToolCall) -> Result<ApprovalDecision, ExecutorError> {
+        self.emit(format!("Approval requested: {}", call.name), json!({ "status": "requested", "taskId": task_id.to_string(), "tool": call.name, "arguments": call.arguments }));
+        let decision = self.broker.request(task_id, call)?;
+        let status = match &decision {
+            ApprovalDecision::Approved => "approved",
+            ApprovalDecision::Rejected => "rejected",
+        };
+        self.emit(format!("Approval {status}: {}", call.name), json!({ "status": status, "taskId": task_id.to_string(), "tool": call.name }));
+        Ok(decision)
+    }
 }
 
 #[tauri::command]
@@ -120,11 +175,46 @@ pub async fn chat_messages_list(store: State<'_, ChatStore>, thread_id: String) 
     store.messages(&thread_id).await
 }
 
+#[tauri::command]
+#[specta::specta]
+pub async fn chat_decide(task_id: String, approved: bool, approval: State<'_, ApprovalBroker>) -> Result<bool, String> {
+    let id = uuid::Uuid::parse_str(&task_id).map_err(|e| format!("invalid task id: {e}"))?;
+    Ok(approval.decide(id, if approved { ApprovalDecision::Approved } else { ApprovalDecision::Rejected }))
+}
+
+/// Captures the full screen for the UI's manual "what am I looking at" check.
+/// User-initiated, so it does not go through the agent's approval gate.
+#[tauri::command]
+#[specta::specta]
+pub async fn chat_screenshot() -> Result<Screenshot, String> {
+    #[cfg(target_os = "macos")]
+    {
+        let file = std::env::temp_dir().join(format!("0xdot-shot-{}.png", uuid::Uuid::new_v4()));
+        let outcome = tauri::async_runtime::spawn_blocking(move || {
+            let status = std::process::Command::new("/usr/sbin/screencapture").args(["-x", "-t", "png", &file.to_string_lossy()]).status();
+            (file, status)
+        })
+        .await
+        .map_err(|e| e.to_string())?;
+        let (file, status) = outcome;
+        if !status.map_err(|e| e.to_string())?.success() {
+            return Err("screencapture failed; grant Screen Recording permission".into());
+        }
+        let bytes = std::fs::read(&file).map_err(|e| e.to_string())?;
+        let _ = std::fs::remove_file(&file);
+        Ok(Screenshot { mime: "image/png".into(), base64: BASE64.encode(bytes) })
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Err("screen capture is only available on macOS today".into())
+    }
+}
+
 /// The tauri-specta surface for the chat commands; a test exports the
 /// generated TypeScript bindings so the web adapter stays in lockstep with
 /// Rust. Event payloads (`ChatDelta`/`ChatDone`/`ChatFailed` on the
-/// `chat://*` topics) mirror chat.rs by hand in the adapter — only the
-/// command surface is code-generated today.
+/// `chat://*` topics, plus the `ChatMessage` on `chat://activity`) mirror
+/// chat.rs by hand in the adapter — only the command surface is code-generated.
 pub fn bindings() -> tauri_specta::Builder<tauri::Wry> {
     tauri_specta::Builder::<tauri::Wry>::new().commands(tauri_specta::collect_commands![
         chat_settings_get,
@@ -135,18 +225,22 @@ pub fn bindings() -> tauri_specta::Builder<tauri::Wry> {
         chat_threads_list,
         chat_thread_create,
         chat_messages_list,
+        chat_decide,
+        chat_screenshot,
         chat_send
     ])
 }
 
 /// Persists the user message, accepts immediately, and drives the agent turn
-/// in the background: deltas stream through events and the assistant reply is
-/// written when the run finishes.
+/// in the background: deltas stream through events, tool and approval activity
+/// is written to the timeline, and the assistant reply is stored when the run
+/// finishes.
 #[tauri::command]
 #[specta::specta]
-pub async fn chat_send(app: AppHandle, store: State<'_, ChatStore>, mcp: State<'_, McpState>, thread_id: String, content: String) -> Result<SendAccepted, String> {
+pub async fn chat_send(app: AppHandle, store: State<'_, ChatStore>, mcp: State<'_, McpState>, approval: State<'_, ApprovalBroker>, thread_id: String, content: String) -> Result<SendAccepted, String> {
     let store = store.inner().clone();
     let mcp = mcp.inner().clone();
+    let broker = approval.inner().clone();
     let thread = store.thread(&thread_id).await?;
     let bot = store.bot(&thread.bot_id).await?;
     if content.trim().is_empty() {
@@ -157,9 +251,9 @@ pub async fn chat_send(app: AppHandle, store: State<'_, ChatStore>, mcp: State<'
     // Memory is keyed by the bot id so what one conversation remembers is
     // available to every later thread with the same bot.
     let agent_id = uuid::Uuid::parse_str(&bot.id).map_err(|e| e.to_string())?;
-    let prior = store.messages(&thread_id).await?;
+    let history_rows = store.transcript(&thread_id).await?;
     let user = store.append_message(&thread_id, "user", &content, false).await?;
-    let history: Vec<ModelMessage> = prior.iter().filter_map(|message| match message.role.as_str() {
+    let history: Vec<ModelMessage> = history_rows.iter().filter_map(|message| match message.role.as_str() {
         "user" => Some(ModelMessage { role: MessageRole::User, content: message.content.clone() }),
         "assistant" if !message.failed => Some(ModelMessage { role: MessageRole::Assistant, content: message.content.clone() }),
         _ => None,
@@ -170,6 +264,20 @@ pub async fn chat_send(app: AppHandle, store: State<'_, ChatStore>, mcp: State<'
     std::fs::create_dir_all(&workspace).map_err(|e| e.to_string())?;
     let memory_path = app_data.join("memory.json");
 
+    // The blocking loop records tool/approval activity through this unbounded
+    // channel; a runtime task persists it in order and mirrors it to the UI.
+    let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel::<ActivityEvent>();
+    let writer_thread = thread_id.clone();
+    let writer_store = store.clone();
+    let writer_app = app.clone();
+    let writer = tauri::async_runtime::spawn(async move {
+        while let Some(event) = receiver.recv().await {
+            if let Ok(message) = writer_store.record_event(&writer_thread, &event.kind, &event.content, &event.payload).await {
+                let _ = writer_app.emit(EVENT_ACTIVITY, &message);
+            }
+        }
+    });
+
     let stream: StreamCallback = {
         let app = app.clone();
         let thread_id = thread_id.clone();
@@ -177,13 +285,20 @@ pub async fn chat_send(app: AppHandle, store: State<'_, ChatStore>, mcp: State<'
             let _ = app.emit(EVENT_DELTA, ChatDelta { thread_id: thread_id.clone(), text: text.to_string() });
         })
     };
+    let observer_tx = sender.clone();
+    let observer: agent_bridge::ToolObserver = Arc::new(move |call: &ToolCall, result: &ToolResult| {
+        let payload = json!({ "tool": call.name, "arguments": call.arguments, "success": result.success, "output": result.output });
+        let _ = observer_tx.send(ActivityEvent { kind: "tool".into(), content: format!("Ran {}", call.name), payload: payload.to_string() });
+    });
+    let gate = Arc::new(ChatApprovalGate::new(broker, sender));
+
     let accepted = SendAccepted { message_id: user.id };
     let run = tauri::async_runtime::spawn_blocking(move || -> Result<String, String> {
         let provider = agent_bridge::provider_from_connection(&base_url, &api_key)?;
         let (runtime, _registered, task) = agent_bridge::new_runtime_task(content.clone())?;
         let task_id = task.id;
         runtime.enqueue_task(task).map_err(|e| e.to_string())?;
-        agent_bridge::execute_with_runtime(&provider, runtime, agent_id, task_id, model, content, system_prompt, None, None, Arc::new(AutoApprove), workspace, memory_path, mcp, history, Some(stream), false).map(|result| result.content)
+        agent_bridge::execute_with_runtime(&provider, runtime, agent_id, task_id, model, content, system_prompt, None, None, gate, workspace, memory_path, mcp, history, Some(stream), false, Some(observer)).map(|result| result.content)
     });
     let app_for_task = app.clone();
     tauri::async_runtime::spawn(async move {
@@ -191,17 +306,19 @@ pub async fn chat_send(app: AppHandle, store: State<'_, ChatStore>, mcp: State<'
             Ok(inner) => inner,
             Err(join) => Err(format!("agent task panicked: {join}")),
         };
+        // The blocking closure returned, so its gate/observer senders are dropped
+        // and the writer has drained; wait for it before persisting the reply so
+        // the assistant message lands after its tool/approval rows.
+        let _ = writer.await;
         match outcome {
-            Ok(text) => {
-                match store.append_message(&thread_id, "assistant", &text, false).await {
-                    Ok(message) => {
-                        let _ = app_for_task.emit(EVENT_DONE, ChatDone { thread_id, message_id: message.id });
-                    }
-                    Err(error) => {
-                        let _ = app_for_task.emit(EVENT_ERROR, ChatFailed { thread_id, message: error });
-                    }
+            Ok(text) => match store.append_message(&thread_id, "assistant", &text, false).await {
+                Ok(message) => {
+                    let _ = app_for_task.emit(EVENT_DONE, ChatDone { thread_id, message_id: message.id });
                 }
-            }
+                Err(error) => {
+                    let _ = app_for_task.emit(EVENT_ERROR, ChatFailed { thread_id, message: error });
+                }
+            },
             Err(error) => {
                 if store.append_message(&thread_id, "assistant", &error, true).await.is_ok() {
                     let _ = app_for_task.emit(EVENT_ERROR, ChatFailed { thread_id, message: error });

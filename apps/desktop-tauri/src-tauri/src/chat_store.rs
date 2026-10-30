@@ -46,6 +46,11 @@ pub struct ChatMessage {
     pub content: String,
     /// True when the turn errored; the content carries the failure text.
     pub failed: bool,
+    /// `chat` is conversation; `tool` and `approval` rows are M2 runtime
+    /// activity that the UI renders inline but the model never replays.
+    pub kind: String,
+    /// JSON metadata for non-chat rows (tool name/arguments/decision).
+    pub payload: String,
     pub created_at: String,
 }
 
@@ -192,6 +197,8 @@ impl ChatStore {
             role: role.to_string(),
             content: content.to_string(),
             failed,
+            kind: "chat".to_string(),
+            payload: String::new(),
             created_at: Self::now(),
         };
         let mut tx = self.pool.begin().await.map_err(|e| e.to_string())?;
@@ -217,12 +224,65 @@ impl ChatStore {
     }
 
     pub async fn messages(&self, thread_id: &str) -> Result<Vec<ChatMessage>, String> {
-        let rows = sqlx::query("SELECT id, thread_id, role, content, failed, created_at FROM messages WHERE thread_id = ? ORDER BY created_at, id")
+        let rows = sqlx::query("SELECT id, thread_id, role, content, failed, kind, payload, created_at FROM messages WHERE thread_id = ? ORDER BY created_at, id")
             .bind(thread_id)
             .fetch_all(&self.pool)
             .await
             .map_err(|e| e.to_string())?;
         Ok(rows.iter().map(message_from_row).collect())
+    }
+
+    /// Conversation rows only (`kind = 'chat'`), oldest first - the shape the
+    /// model replays. Tool and approval activity is excluded so it never reads
+    /// as a turn.
+    pub async fn transcript(&self, thread_id: &str) -> Result<Vec<ChatMessage>, String> {
+        let rows = sqlx::query("SELECT id, thread_id, role, content, failed, kind, payload, created_at FROM messages WHERE thread_id = ? AND kind = 'chat' ORDER BY created_at, id")
+            .bind(thread_id)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| e.to_string())?;
+        Ok(rows.iter().map(message_from_row).collect())
+    }
+
+    /// Writes a runtime-activity row (`tool` or `approval`) without touching
+    /// the thread title or the model transcript. The `content` is a short label
+    /// the UI shows; structured detail lives in `payload`.
+    pub async fn record_event(&self, thread_id: &str, kind: &str, content: &str, payload: &str) -> Result<ChatMessage, String> {
+        let message = ChatMessage {
+            id: uuid::Uuid::new_v4().to_string(),
+            thread_id: thread_id.to_string(),
+            role: "assistant".to_string(),
+            content: content.to_string(),
+            failed: false,
+            kind: kind.to_string(),
+            payload: payload.to_string(),
+            created_at: Self::now(),
+        };
+        sqlx::query("INSERT INTO messages (id, thread_id, role, content, failed, kind, payload, created_at) VALUES (?, ?, ?, ?, 0, ?, ?, ?)")
+            .bind(&message.id)
+            .bind(&message.thread_id)
+            .bind(&message.role)
+            .bind(&message.content)
+            .bind(&message.kind)
+            .bind(&message.payload)
+            .bind(&message.created_at)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| e.to_string())?;
+        Ok(message)
+    }
+
+    /// Updates an activity row's status payload in place (e.g. an approval from
+    /// `pending` to `approved`/`rejected`), keeping its position in the
+    /// timeline.
+    pub async fn set_event_payload(&self, id: &str, payload: &str) -> Result<(), String> {
+        sqlx::query("UPDATE messages SET payload = ? WHERE id = ?")
+            .bind(payload)
+            .bind(id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| e.to_string())?;
+        Ok(())
     }
 
     pub async fn set_setting(&self, key: &str, value: &str) -> Result<(), String> {
@@ -299,6 +359,8 @@ fn message_from_row(row: &sqlx::sqlite::SqliteRow) -> ChatMessage {
         role: row.get("role"),
         content: row.get("content"),
         failed: row.get::<i64, _>("failed") != 0,
+        kind: row.get("kind"),
+        payload: row.get("payload"),
         created_at: row.get("created_at"),
     }
 }
@@ -320,6 +382,29 @@ mod tests {
         let threads = store.threads(&bot.id).await.unwrap();
         assert_eq!(threads[0].title, "hello world");
         assert_eq!(store.bots().await.unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn transcript_excludes_events_and_events_update_in_place() {
+        let store = ChatStore::in_memory().await.unwrap();
+        let bot = store.create_bot("Chief", "", "m").await.unwrap();
+        let thread = store.create_thread(&bot.id, "").await.unwrap();
+        store.append_message(&thread.id, "user", "do it", false).await.unwrap();
+        let approval = store.record_event(&thread.id, "approval", "run host.computer.run", r#"{"status":"pending"}"#).await.unwrap();
+        store.record_event(&thread.id, "tool", "host.computer.run", r#"{"exit":0}"#).await.unwrap();
+        store.append_message(&thread.id, "assistant", "done", false).await.unwrap();
+
+        // The model transcript is conversation only; the UI timeline is full.
+        let transcript = store.transcript(&thread.id).await.unwrap();
+        assert_eq!(transcript.len(), 2);
+        assert!(transcript.iter().all(|m| m.kind == "chat"));
+        assert_eq!(store.messages(&thread.id).await.unwrap().len(), 4);
+
+        store.set_event_payload(&approval.id, r#"{"status":"approved"}"#).await.unwrap();
+        let refreshed = store.messages(&thread.id).await.unwrap();
+        let row = refreshed.iter().find(|m| m.id == approval.id).unwrap();
+        assert_eq!(row.kind, "approval");
+        assert_eq!(row.payload, r#"{"status":"approved"}"#);
     }
 
     #[tokio::test]

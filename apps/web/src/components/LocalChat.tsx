@@ -5,9 +5,11 @@ import {
   type ChatMessage,
   type ChatThread,
   chat,
+  onChatActivity,
   onChatDelta,
   onChatDone,
   onChatFailed,
+  type Screenshot,
 } from "../lib/tauri/chat-bridge";
 import { Shimmer } from "./ai/primitives";
 
@@ -17,10 +19,28 @@ interface Connection {
   hasApiKey: boolean;
 }
 
+/** Structured `payload` for tool and approval timeline rows (see chat.rs). */
+interface ActivityPayload {
+  status?: string;
+  taskId?: string;
+  tool?: string;
+  success?: boolean;
+}
+
+function parsePayload(raw: string): ActivityPayload {
+  if (!raw) return {};
+  try {
+    return JSON.parse(raw) as ActivityPayload;
+  } catch {
+    return {};
+  }
+}
+
 /**
- * The M1 vertical chat slice on the local Tauri runtime: bots, threads and
- * messages come from the embedded SQLite store and the Rust agent loop
- * streams replies over IPC events. No server involved.
+ * The local-first chat on the embedded Rust runtime (migration plan M1/M2).
+ * Conversation, tool activity and approval requests are all read back from the
+ * SQLite transcript; mutating host tools block on the approval gate until the
+ * user decides, so the agent's use of the computer is visible and gated.
  */
 export function LocalChat() {
   const [bots, setBots] = useState<Bot[]>([]);
@@ -37,6 +57,7 @@ export function LocalChat() {
   const [baseUrl, setBaseUrl] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [defaultModel, setDefaultModel] = useState("");
+  const [shot, setShot] = useState<Screenshot | null>(null);
 
   // Events fire from the native runtime; a ref keeps the handlers reading the
   // thread the user is actually looking at, not the one they were captured on.
@@ -53,6 +74,15 @@ export function LocalChat() {
       onChatDelta((payload) => {
         if (payload.threadId === activeThread.current)
           setStreaming((current) => (current ?? "") + payload.text);
+      }),
+    );
+    void register(
+      onChatActivity((message) => {
+        if (message.threadId !== activeThread.current) return;
+        // Idempotent append: the final reload after done returns the same rows.
+        setMessages((current) =>
+          current.some((row) => row.id === message.id) ? current : [...current, message],
+        );
       }),
     );
     void register(
@@ -161,10 +191,20 @@ export function LocalChat() {
     setDraft("");
     setError(null);
     setStreaming("");
-    // The user message is persisted before the runtime answers, so refresh the
-    // transcript to show it while the reply streams in.
     await chat.send(threadId, content);
     void chat.listMessages(threadId).then(setMessages);
+  };
+
+  const capture = async () => {
+    try {
+      setShot(await chat.screenshot());
+    } catch (cause) {
+      setError((cause as Error).message);
+    }
+  };
+
+  const decide = (taskId: string, approved: boolean) => {
+    void chat.decide(taskId, approved).catch((cause: Error) => setError(cause.message));
   };
 
   const needsConnection = connection !== null && (!connection.baseUrl || !connection.hasApiKey);
@@ -217,6 +257,14 @@ export function LocalChat() {
           <Button size="sm" variant="ghost" onClick={() => void openThread()}>
             +
           </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => void capture()}
+            aria-label="Capture screen"
+          >
+            Capture
+          </Button>
           <Button size="sm" variant="ghost" onClick={() => setShowSettings((current) => !current)}>
             Model
           </Button>
@@ -253,22 +301,85 @@ export function LocalChat() {
         </section>
       )}
 
-      <section className="flex flex-1 flex-col gap-3 overflow-y-auto py-4">
-        {messages.map((message) => (
-          <div
-            key={message.id}
-            data-testid={`message-${message.role}${message.failed ? "-failed" : ""}`}
-            className={
-              message.role === "user"
-                ? "self-end max-w-[85%] rounded-xl bg-primary px-3 py-2 text-sm text-primary-foreground whitespace-pre-wrap"
-                : message.failed
-                  ? "self-start max-w-[85%] rounded-xl border border-destructive px-3 py-2 text-sm text-destructive whitespace-pre-wrap"
-                  : "self-start max-w-[85%] rounded-xl border border-border bg-card px-3 py-2 text-sm whitespace-pre-wrap"
-            }
+      {shot && (
+        <section className="mt-3 flex items-center gap-3 rounded-lg border border-border bg-card p-2">
+          <img
+            src={`data:${shot.mime};base64,${shot.base64}`}
+            alt="Screen"
+            className="max-h-40 rounded border border-border object-contain"
+            data-testid="screenshot-preview"
+          />
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => setShot(null)}
+            aria-label="Dismiss screenshot"
           >
-            {message.content}
-          </div>
-        ))}
+            Dismiss
+          </Button>
+        </section>
+      )}
+
+      <section className="flex flex-1 flex-col gap-3 overflow-y-auto py-4">
+        {messages.map((message) => {
+          if (message.kind === "chat") {
+            return (
+              <div
+                key={message.id}
+                data-testid={`message-${message.role}${message.failed ? "-failed" : ""}`}
+                className={
+                  message.role === "user"
+                    ? "self-end max-w-[85%] rounded-xl bg-primary px-3 py-2 text-sm text-primary-foreground whitespace-pre-wrap"
+                    : message.failed
+                      ? "self-start max-w-[85%] rounded-xl border border-destructive px-3 py-2 text-sm text-destructive whitespace-pre-wrap"
+                      : "self-start max-w-[85%] rounded-xl border border-border bg-card px-3 py-2 text-sm whitespace-pre-wrap"
+                }
+              >
+                {message.content}
+              </div>
+            );
+          }
+          if (message.kind === "approval") {
+            const payload = parsePayload(message.payload);
+            const pending = payload.status === "requested" && payload.taskId;
+            return (
+              <div
+                key={message.id}
+                data-testid={`activity-${message.kind}`}
+                className="self-stretch flex items-center gap-2 rounded-lg border border-warning/40 bg-card px-3 py-2 text-sm"
+              >
+                <span className="text-warning">{message.content}</span>
+                {pending && (
+                  <span className="ms-auto flex gap-1">
+                    <Button size="sm" onClick={() => decide(payload.taskId as string, true)}>
+                      Allow
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => decide(payload.taskId as string, false)}
+                    >
+                      Deny
+                    </Button>
+                  </span>
+                )}
+              </div>
+            );
+          }
+          // kind === "tool"
+          const payload = parsePayload(message.payload);
+          return (
+            <div
+              key={message.id}
+              data-testid={`activity-${message.kind}`}
+              className={`self-start rounded px-2 py-1 text-xs font-mono ${
+                payload.success === false ? "text-destructive" : "text-muted-foreground"
+              }`}
+            >
+              {message.content}
+            </div>
+          );
+        })}
         {streaming !== null && (
           <div
             data-testid="message-streaming"

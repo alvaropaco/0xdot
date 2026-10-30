@@ -2,7 +2,11 @@
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ChatDeltaPayload, ChatDonePayload } from "../lib/tauri/chat-bridge";
+import type {
+  ChatActivityHandler,
+  ChatDeltaPayload,
+  ChatDonePayload,
+} from "../lib/tauri/chat-bridge";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -10,6 +14,29 @@ const bridgeState = vi.hoisted(() => ({ sent: false, done: false }));
 
 const deltaHandlers: Array<(payload: ChatDeltaPayload) => void> = [];
 const doneHandlers: Array<(payload: ChatDonePayload) => void> = [];
+const activityHandlers: ChatActivityHandler[] = [];
+
+function chatMessage(
+  overrides: Partial<{
+    id: string;
+    role: string;
+    content: string;
+    kind: string;
+    payload: string;
+    createdAt: string;
+  }>,
+) {
+  return {
+    id: overrides.id ?? "m",
+    threadId: "t1",
+    role: overrides.role ?? "assistant",
+    content: overrides.content ?? "",
+    failed: false,
+    kind: overrides.kind ?? "chat",
+    payload: overrides.payload ?? "",
+    createdAt: "2026-01-01T00:00:00Z",
+  };
+}
 
 vi.mock("../lib/tauri/chat-bridge", () => ({
   chat: {
@@ -29,31 +56,30 @@ vi.mock("../lib/tauri/chat-bridge", () => ({
       updatedAt: "2026-01-01T00:00:00Z",
     })),
     listMessages: vi.fn(async () => {
-      const user = {
+      const user = chatMessage({
         id: "u1",
-        threadId: "t1",
         role: "user",
         content: "hello",
-        failed: false,
         createdAt: "2026-01-01T00:00:01Z",
-      };
+      });
       if (!bridgeState.sent) return [];
       if (!bridgeState.done) return [user];
       return [
         user,
-        {
-          ...user,
+        chatMessage({
           id: "a1",
           role: "assistant",
           content: "hi there",
           createdAt: "2026-01-01T00:00:02Z",
-        },
+        }),
       ];
     }),
     send: vi.fn(async () => {
       bridgeState.sent = true;
       return { messageId: "u1" };
     }),
+    decide: vi.fn(async () => true),
+    screenshot: vi.fn(async () => ({ mime: "image/png", base64: "AAAA" })),
   },
   onChatDelta: vi.fn(async (handler: (payload: ChatDeltaPayload) => void) => {
     deltaHandlers.push(handler);
@@ -67,6 +93,10 @@ vi.mock("../lib/tauri/chat-bridge", () => ({
     return () => undefined;
   }),
   onChatFailed: vi.fn(async () => () => undefined),
+  onChatActivity: vi.fn(async (handler: ChatActivityHandler) => {
+    activityHandlers.push(handler);
+    return () => undefined;
+  }),
 }));
 
 import { chat } from "../lib/tauri/chat-bridge";
@@ -88,6 +118,7 @@ beforeEach(() => {
   bridgeState.done = false;
   deltaHandlers.length = 0;
   doneHandlers.length = 0;
+  activityHandlers.length = 0;
 });
 
 afterEach(async () => {
@@ -103,12 +134,16 @@ async function renderChat() {
   await flush();
 }
 
+function clickButton(label: string) {
+  const button = [...host.querySelectorAll("button")].find((b) => b.textContent === label);
+  act(() => button?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+}
+
 describe("LocalChat", () => {
   it("loads the bot and opens a thread", async () => {
     await renderChat();
     expect(host.querySelector('[data-testid="local-chat"]')).toBeTruthy();
     expect(host.textContent).toContain("Chief");
-    // No threads existed, so the runtime created one.
     expect(chat.createThread).toHaveBeenCalledWith("b1");
   });
 
@@ -123,24 +158,20 @@ describe("LocalChat", () => {
       composer?.dispatchEvent(new Event("input", { bubbles: true }));
     });
 
-    const sendButton = [...host.querySelectorAll("button")].find((b) => b.textContent === "Send");
-    await act(async () => {
-      sendButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    });
+    clickButton("Send");
     await flush();
     expect(chat.send).toHaveBeenCalledWith("t1", "hello");
     expect(host.querySelector('[data-testid="message-user"]')).toBeTruthy();
 
-    // A delta from the runtime renders into the streaming bubble before done.
     await act(async () => {
       deltaHandlers.forEach((handler) => {
         handler({ threadId: "t1", text: "hi the" });
       });
     });
-    const streaming = host.querySelector('[data-testid="message-streaming"]');
-    expect(streaming?.textContent).toContain("hi the");
+    expect(host.querySelector('[data-testid="message-streaming"]')?.textContent).toContain(
+      "hi the",
+    );
 
-    // done persists the final message and re-lists the transcript.
     await act(async () => {
       doneHandlers.forEach((handler) => {
         handler({ threadId: "t1", messageId: "a1" });
@@ -151,7 +182,56 @@ describe("LocalChat", () => {
     expect(host.querySelector('[data-testid="message-assistant"]')?.textContent).toBe("hi there");
   });
 
-  it("ignores events for other threads", async () => {
+  it("renders tool activity rows pushed by the runtime", async () => {
+    await renderChat();
+    await act(async () => {
+      activityHandlers.forEach((handler) => {
+        handler(
+          chatMessage({
+            id: "ev1",
+            kind: "tool",
+            content: "Ran git.status",
+            payload: '{"tool":"git.status","success":true}',
+          }) as never,
+        );
+      });
+    });
+    const row = host.querySelector('[data-testid="activity-tool"]');
+    expect(row?.textContent).toContain("Ran git.status");
+  });
+
+  it("shows an approval request and lets the user decide", async () => {
+    await renderChat();
+    const taskId = "7c9e6679-7425-40de-944b-e07fc1f90ae7";
+    await act(async () => {
+      activityHandlers.forEach((handler) => {
+        handler(
+          chatMessage({
+            id: "ap1",
+            kind: "approval",
+            content: "Approval requested: host.computer.run",
+            payload: JSON.stringify({ status: "requested", taskId, tool: "host.computer.run" }),
+          }) as never,
+        );
+      });
+    });
+    const approval = host.querySelector('[data-testid="activity-approval"]');
+    expect(approval?.textContent).toContain("host.computer.run");
+    expect(approval?.querySelector("button")).toBeTruthy();
+
+    clickButton("Allow");
+    expect(chat.decide).toHaveBeenCalledWith(taskId, true);
+  });
+
+  it("captures a screenshot preview on demand", async () => {
+    await renderChat();
+    clickButton("Capture");
+    await flush();
+    const img = host.querySelector<HTMLImageElement>('[data-testid="screenshot-preview"]');
+    expect(img?.getAttribute("src")).toContain("data:image/png;base64,");
+  });
+
+  it("ignores delta events for other threads", async () => {
     await renderChat();
     await act(async () => {
       deltaHandlers.forEach((handler) => {

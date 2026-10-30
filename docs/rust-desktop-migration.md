@@ -115,9 +115,19 @@ accounts, billing); mobile push; hosted providers.
   Bindings are regenerated deterministically by
   `cargo test -p rakazo-desktop generate_typescript_bindings`; event payloads
   are mirrored by hand in the web bridge (only the command surface is generated).
-- **M2 — next:** the computer. `rakazo-host` becomes the sandbox "computer":
-  shell commands with approvals, file tree, screenshots; takeover UX; approval
-  rules and auto-review ported.
+- **M2 — done (2026-10-30).** The computer is now driven from the local chat.
+  The turn loop auto-approves only the sandboxed workspace tools; host
+  filesystem writes, shell (`host.computer.run`), Docker and the automation
+  tools (mouse/keyboard/window focus) block on the shared `ApprovalBroker`
+  through a chat approval gate: the UI receives `chat://approval` with the tool
+  name and arguments and the user decides (`chat_decide`). Tool and approval
+  activity is persisted in the transcript (`messages.kind`/`payload`, additive
+  migration 0002) and mirrored live over `chat://activity`; model replay reads
+  only `kind='chat'` rows so activity never pollutes the conversation. A
+  user-initiated `chat_screenshot` (macOS `screencapture`) previews the desktop
+  in the chat.
+- **M3 — next:** memory (MEMORY.md semantics), artifacts on disk, and FTS5
+  search over local content.
 
 ## Risks
 

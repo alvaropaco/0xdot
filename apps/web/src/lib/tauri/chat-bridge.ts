@@ -6,9 +6,17 @@
  */
 
 import { listen } from "@tauri-apps/api/event";
+import type { ChatMessage } from "./bindings";
 import { commands as chatCommands } from "./bindings";
 
-export type { Bot, ChatMessage, ChatSettings, ChatThread, SendAccepted } from "./bindings";
+export type {
+  Bot,
+  ChatMessage,
+  ChatSettings,
+  ChatThread,
+  Screenshot,
+  SendAccepted,
+} from "./bindings";
 
 /** Mirror of apps/desktop-tauri chat.rs; event payloads are not code-generated. */
 export interface ChatDeltaPayload {
@@ -46,6 +54,8 @@ export const chat = {
   createThread: (botId: string) => unwrap(chatCommands.chatThreadCreate(botId)),
   listMessages: (threadId: string) => unwrap(chatCommands.chatMessagesList(threadId)),
   send: (threadId: string, content: string) => unwrap(chatCommands.chatSend(threadId, content)),
+  decide: (taskId: string, approved: boolean) => unwrap(chatCommands.chatDecide(taskId, approved)),
+  screenshot: () => unwrap(chatCommands.chatScreenshot()),
 };
 
 function on<T>(topic: string, handler: (payload: T) => void): Promise<() => void> {
@@ -58,3 +68,6 @@ export const onChatDone = (handler: (payload: ChatDonePayload) => void) =>
   on("chat://done", handler);
 export const onChatFailed = (handler: (payload: ChatFailedPayload) => void) =>
   on("chat://error", handler);
+/** A tool or approval timeline row emitted while the agent turn is running. */
+export type ChatActivityHandler = (message: ChatMessage) => void;
+export const onChatActivity = (handler: ChatActivityHandler) => on("chat://activity", handler);

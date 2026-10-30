@@ -16,10 +16,17 @@ export const commands = {
 	chatThreadsList: (botId: string) => typedError<ChatThread[], string>(__TAURI_INVOKE("chat_threads_list", { botId })),
 	chatThreadCreate: (botId: string) => typedError<ChatThread, string>(__TAURI_INVOKE("chat_thread_create", { botId })),
 	chatMessagesList: (threadId: string) => typedError<ChatMessage[], string>(__TAURI_INVOKE("chat_messages_list", { threadId })),
+	chatDecide: (taskId: string, approved: boolean) => typedError<boolean, string>(__TAURI_INVOKE("chat_decide", { taskId, approved })),
+	/**
+	 *  Captures the full screen for the UI's manual "what am I looking at" check.
+	 *  User-initiated, so it does not go through the agent's approval gate.
+	 */
+	chatScreenshot: () => typedError<Screenshot, string>(__TAURI_INVOKE("chat_screenshot")),
 	/**
 	 *  Persists the user message, accepts immediately, and drives the agent turn
-	 *  in the background: deltas stream through events and the assistant reply is
-	 *  written when the run finishes.
+	 *  in the background: deltas stream through events, tool and approval activity
+	 *  is written to the timeline, and the assistant reply is stored when the run
+	 *  finishes.
 	 */
 	chatSend: (threadId: string, content: string) => typedError<SendAccepted, string>(__TAURI_INVOKE("chat_send", { threadId, content })),
 };
@@ -41,6 +48,13 @@ export type ChatMessage = {
 	content: string,
 	/**  True when the turn errored; the content carries the failure text. */
 	failed: boolean,
+	/**
+	 *  `chat` is conversation; `tool` and `approval` rows are M2 runtime
+	 *  activity that the UI renders inline but the model never replays.
+	 */
+	kind: string,
+	/**  JSON metadata for non-chat rows (tool name/arguments/decision). */
+	payload: string,
 	createdAt: string,
 };
 
@@ -60,6 +74,12 @@ export type ChatThread = {
 	title: string,
 	createdAt: string,
 	updatedAt: string,
+};
+
+export type Screenshot = {
+	/**  `image/png` today; keeps the payload self-describing. */
+	mime: string,
+	base64: string,
 };
 
 export type SendAccepted = {
