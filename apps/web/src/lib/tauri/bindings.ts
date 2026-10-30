@@ -16,6 +16,14 @@ export const commands = {
 	chatThreadsList: (botId: string) => typedError<ChatThread[], string>(__TAURI_INVOKE("chat_threads_list", { botId })),
 	chatThreadCreate: (botId: string) => typedError<ChatThread, string>(__TAURI_INVOKE("chat_thread_create", { botId })),
 	chatMessagesList: (threadId: string) => typedError<ChatMessage[], string>(__TAURI_INVOKE("chat_messages_list", { threadId })),
+	chatSearch: (query: string, limit: number | null) => typedError<SearchHit[], string>(__TAURI_INVOKE("chat_search", { query, limit })),
+	/**
+	 *  Lists the bot's workspace files (artifacts the agent wrote) recursively.
+	 *  The bot id is validated as a uuid before it becomes a path segment, so no
+	 *  caller can escape the workspaces directory.
+	 */
+	chatWorkspaceFiles: (botId: string) => typedError<string[], string>(__TAURI_INVOKE("chat_workspace_files", { botId })),
+	chatWorkspaceRead: (botId: string, path: string) => typedError<string, string>(__TAURI_INVOKE("chat_workspace_read", { botId, path })),
 	chatDecide: (taskId: string, approved: boolean) => typedError<boolean, string>(__TAURI_INVOKE("chat_decide", { taskId, approved })),
 	/**
 	 *  Captures the full screen for the UI's manual "what am I looking at" check.
@@ -80,6 +88,18 @@ export type Screenshot = {
 	/**  `image/png` today; keeps the payload self-describing. */
 	mime: string,
 	base64: string,
+};
+
+/**  One FTS5 transcript hit (M3 local search). */
+export type SearchHit = {
+	threadId: string,
+	botId: string,
+	threadTitle: string,
+	messageId: string,
+	kind: string,
+	/**  A short excerpt with the matched terms marked. */
+	snippet: string,
+	createdAt: string,
 };
 
 export type SendAccepted = {

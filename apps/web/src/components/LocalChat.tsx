@@ -10,6 +10,7 @@ import {
   onChatDone,
   onChatFailed,
   type Screenshot,
+  type SearchHit,
 } from "../lib/tauri/chat-bridge";
 import { Shimmer } from "./ai/primitives";
 
@@ -58,11 +59,18 @@ export function LocalChat() {
   const [apiKey, setApiKey] = useState("");
   const [defaultModel, setDefaultModel] = useState("");
   const [shot, setShot] = useState<Screenshot | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [hits, setHits] = useState<SearchHit[] | null>(null);
+  const [showFiles, setShowFiles] = useState(false);
+  const [files, setFiles] = useState<string[]>([]);
+  const [fileContent, setFileContent] = useState<{ path: string; content: string } | null>(null);
 
   // Events fire from the native runtime; a ref keeps the handlers reading the
   // thread the user is actually looking at, not the one they were captured on.
   const activeThread = useRef<string | null>(null);
   activeThread.current = threadId;
+  // A search hit from another bot: the bot effect selects it once threads load.
+  const jumpTarget = useRef<string | null>(null);
 
   useEffect(() => {
     const unlisteners: Array<() => void> = [];
@@ -140,7 +148,11 @@ export function LocalChat() {
           setThreadId(created.id);
         } else {
           setThreads(rows);
-          setThreadId(rows[0]?.id ?? null);
+          const target = jumpTarget.current
+            ? rows.find((row) => row.id === jumpTarget.current)
+            : undefined;
+          jumpTarget.current = null;
+          setThreadId(target?.id ?? rows[0]?.id ?? null);
         }
       })
       .catch((cause: Error) => active && setError(cause.message));
@@ -203,6 +215,52 @@ export function LocalChat() {
     }
   };
 
+  const runSearch = async () => {
+    const query = searchQuery.trim();
+    if (!query) {
+      setHits(null);
+      return;
+    }
+    try {
+      setHits(await chat.search(query, 20));
+    } catch (cause) {
+      setError((cause as Error).message);
+    }
+  };
+
+  const openHit = (hit: SearchHit) => {
+    setHits(null);
+    setSearchQuery("");
+    if (hit.botId === botId) {
+      setThreadId(hit.threadId);
+      return;
+    }
+    jumpTarget.current = hit.threadId;
+    setBotId(hit.botId);
+  };
+
+  const toggleFiles = async () => {
+    const next = !showFiles;
+    setShowFiles(next);
+    setFileContent(null);
+    if (next && botId) {
+      try {
+        setFiles(await chat.workspaceFiles(botId));
+      } catch (cause) {
+        setError((cause as Error).message);
+      }
+    }
+  };
+
+  const openFile = async (path: string) => {
+    if (!botId) return;
+    try {
+      setFileContent({ path, content: await chat.workspaceRead(botId, path) });
+    } catch (cause) {
+      setError((cause as Error).message);
+    }
+  };
+
   const decide = (taskId: string, approved: boolean) => {
     void chat.decide(taskId, approved).catch((cause: Error) => setError(cause.message));
   };
@@ -226,6 +284,14 @@ export function LocalChat() {
           </Button>
         ))}
         <div className="flex items-center gap-1">
+          <Input
+            className="h-8 w-40"
+            placeholder="Search"
+            aria-label="Search transcripts"
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+            onKeyDown={(event) => event.key === "Enter" && void runSearch()}
+          />
           <Input
             className="h-8 w-36"
             placeholder="New bot"
@@ -265,6 +331,13 @@ export function LocalChat() {
           >
             Capture
           </Button>
+          <Button
+            size="sm"
+            variant={showFiles ? "secondary" : "ghost"}
+            onClick={() => void toggleFiles()}
+          >
+            Files
+          </Button>
           <Button size="sm" variant="ghost" onClick={() => setShowSettings((current) => !current)}>
             Model
           </Button>
@@ -298,6 +371,57 @@ export function LocalChat() {
           <Button size="sm" onClick={() => void saveSettings()}>
             Save
           </Button>
+        </section>
+      )}
+
+      {hits && (
+        <section
+          className="mt-3 flex flex-col gap-1 rounded-lg border border-border bg-card p-2"
+          data-testid="search-results"
+        >
+          {hits.length === 0 && <p className="text-sm text-muted-foreground">No matches.</p>}
+          {hits.map((hit) => (
+            <Button
+              key={hit.messageId}
+              size="sm"
+              variant="ghost"
+              className="justify-start text-left"
+              onClick={() => openHit(hit)}
+            >
+              <span className="font-medium">{hit.threadTitle || "Thread"}</span>
+              <span className="ms-2 text-xs text-muted-foreground">{hit.snippet}</span>
+            </Button>
+          ))}
+        </section>
+      )}
+
+      {showFiles && (
+        <section
+          className="mt-3 flex gap-3 rounded-lg border border-border bg-card p-2"
+          data-testid="files-panel"
+        >
+          <div className="flex w-48 flex-col gap-1">
+            {files.length === 0 && <p className="text-sm text-muted-foreground">No files.</p>}
+            {files.map((file) => (
+              <Button
+                key={file}
+                size="sm"
+                variant={fileContent?.path === file ? "secondary" : "ghost"}
+                className="justify-start font-mono text-xs"
+                onClick={() => void openFile(file)}
+              >
+                {file}
+              </Button>
+            ))}
+          </div>
+          {fileContent && (
+            <pre
+              data-testid="file-content"
+              className="flex-1 overflow-auto rounded bg-muted p-2 text-xs"
+            >
+              {fileContent.content}
+            </pre>
+          )}
         </section>
       )}
 

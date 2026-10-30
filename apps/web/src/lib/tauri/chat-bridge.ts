@@ -15,6 +15,7 @@ export type {
   ChatSettings,
   ChatThread,
   Screenshot,
+  SearchHit,
   SendAccepted,
 } from "./bindings";
 
@@ -56,6 +57,10 @@ export const chat = {
   send: (threadId: string, content: string) => unwrap(chatCommands.chatSend(threadId, content)),
   decide: (taskId: string, approved: boolean) => unwrap(chatCommands.chatDecide(taskId, approved)),
   screenshot: () => unwrap(chatCommands.chatScreenshot()),
+  search: (query: string, limit?: number) => unwrap(chatCommands.chatSearch(query, limit ?? null)),
+  workspaceFiles: (botId: string) => unwrap(chatCommands.chatWorkspaceFiles(botId)),
+  workspaceRead: (botId: string, path: string) =>
+    unwrap(chatCommands.chatWorkspaceRead(botId, path)),
 };
 
 function on<T>(topic: string, handler: (payload: T) => void): Promise<() => void> {

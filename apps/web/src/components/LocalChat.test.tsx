@@ -47,7 +47,19 @@ vi.mock("../lib/tauri/chat-bridge", () => ({
     ]),
     createBot: vi.fn(),
     removeBot: vi.fn(),
-    listThreads: vi.fn(async () => []),
+    listThreads: vi.fn(async (botId: string) =>
+      botId === "b2"
+        ? [
+            {
+              id: "t9",
+              botId: "b2",
+              title: "Old thread",
+              createdAt: "2026-01-01T00:00:00Z",
+              updatedAt: "2026-01-01T00:00:00Z",
+            },
+          ]
+        : [],
+    ),
     createThread: vi.fn(async () => ({
       id: "t1",
       botId: "b1",
@@ -80,6 +92,19 @@ vi.mock("../lib/tauri/chat-bridge", () => ({
     }),
     decide: vi.fn(async () => true),
     screenshot: vi.fn(async () => ({ mime: "image/png", base64: "AAAA" })),
+    search: vi.fn(async (query: string) => [
+      {
+        threadId: "t9",
+        botId: "b2",
+        threadTitle: "Old thread",
+        messageId: "m9",
+        kind: "chat",
+        snippet: `…${query}…`,
+        createdAt: "2026-01-01T00:00:00Z",
+      },
+    ]),
+    workspaceFiles: vi.fn(async () => ["notes.md", "out/report.html"]),
+    workspaceRead: vi.fn(async () => "# report body"),
   },
   onChatDelta: vi.fn(async (handler: (payload: ChatDeltaPayload) => void) => {
     deltaHandlers.push(handler);
@@ -137,6 +162,24 @@ async function renderChat() {
 function clickButton(label: string) {
   const button = [...host.querySelectorAll("button")].find((b) => b.textContent === label);
   act(() => button?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+}
+
+function clickButtonWithText(fragment: string) {
+  const button = [...host.querySelectorAll("button")].find((b) =>
+    b.textContent?.includes(fragment),
+  );
+  act(() => button?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+}
+
+async function typeInto(selector: string, value: string, submit = false) {
+  const input = host.querySelector<HTMLInputElement>(selector);
+  expect(input).toBeTruthy();
+  await act(async () => {
+    const native = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value");
+    native?.set?.call(input, value);
+    input?.dispatchEvent(new Event("input", { bubbles: true }));
+    if (submit) input?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+  });
 }
 
 describe("LocalChat", () => {
@@ -239,5 +282,34 @@ describe("LocalChat", () => {
       });
     });
     expect(host.querySelector('[data-testid="message-streaming"]')).toBeNull();
+  });
+
+  it("searches transcripts and jumps to a hit from another bot", async () => {
+    await renderChat();
+    await typeInto('[aria-label="Search transcripts"]', "postgres", true);
+    await flush();
+    expect(chat.search).toHaveBeenCalledWith("postgres", 20);
+    const results = host.querySelector('[data-testid="search-results"]');
+    expect(results?.textContent).toContain("Old thread");
+
+    clickButtonWithText("Old thread");
+    await flush();
+    expect(chat.listThreads).toHaveBeenCalledWith("b2");
+    expect(chat.listMessages).toHaveBeenCalledWith("t9");
+  });
+
+  it("lists workspace files and previews their content", async () => {
+    await renderChat();
+    clickButton("Files");
+    await flush();
+    expect(chat.workspaceFiles).toHaveBeenCalledWith("b1");
+    const panel = host.querySelector('[data-testid="files-panel"]');
+    expect(panel?.textContent).toContain("notes.md");
+    expect(panel?.textContent).toContain("out/report.html");
+
+    clickButtonWithText("notes.md");
+    await flush();
+    expect(chat.workspaceRead).toHaveBeenCalledWith("b1", "notes.md");
+    expect(host.querySelector('[data-testid="file-content"]')?.textContent).toBe("# report body");
   });
 });

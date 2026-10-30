@@ -9,7 +9,7 @@
 use crate::{
     agent_bridge,
     approval::ApprovalBroker,
-    chat_store::{Bot, ChatMessage, ChatStore, ChatThread, KEY_API_KEY, KEY_BASE_URL, KEY_DEFAULT_MODEL},
+    chat_store::{Bot, ChatMessage, ChatStore, ChatThread, SearchHit, KEY_API_KEY, KEY_BASE_URL, KEY_DEFAULT_MODEL},
     mcp_state::McpState,
 };
 #[cfg(target_os = "macos")]
@@ -177,6 +177,57 @@ pub async fn chat_messages_list(store: State<'_, ChatStore>, thread_id: String) 
 
 #[tauri::command]
 #[specta::specta]
+pub async fn chat_search(store: State<'_, ChatStore>, query: String, limit: Option<i32>) -> Result<Vec<SearchHit>, String> {
+    store.search(&query, limit.unwrap_or(20).clamp(1, 50) as i64).await
+}
+
+/// Lists the bot's workspace files (artifacts the agent wrote) recursively.
+/// The bot id is validated as a uuid before it becomes a path segment, so no
+/// caller can escape the workspaces directory.
+#[tauri::command]
+#[specta::specta]
+pub async fn chat_workspace_files(app: AppHandle, bot_id: String) -> Result<Vec<String>, String> {
+    let bot_uuid = uuid::Uuid::parse_str(&bot_id).map_err(|_| "invalid bot id".to_string())?;
+    let root = crate::app_data_dir(&app)?.join("workspaces").join(bot_uuid.to_string());
+    if !root.exists() {
+        return Ok(Vec::new());
+    }
+    let mut files = Vec::new();
+    collect_files(&root, &root, &mut files, 4, 300).map_err(|e| e.to_string())?;
+    files.sort();
+    Ok(files)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn chat_workspace_read(app: AppHandle, bot_id: String, path: String) -> Result<String, String> {
+    let bot_uuid = uuid::Uuid::parse_str(&bot_id).map_err(|_| "invalid bot id".to_string())?;
+    let root = crate::app_data_dir(&app)?.join("workspaces").join(bot_uuid.to_string());
+    std::fs::create_dir_all(&root).map_err(|e| e.to_string())?;
+    rakazo_core::WorkspaceFs::new(root)
+        .map_err(|e| e.to_string())?
+        .read_file(&path)
+        .map_err(|e| e.to_string())
+}
+
+fn collect_files(root: &std::path::Path, dir: &std::path::Path, files: &mut Vec<String>, depth: u32, cap: usize) -> std::io::Result<()> {
+    if depth == 0 || files.len() >= cap {
+        return Ok(());
+    }
+    for entry in std::fs::read_dir(dir)? {
+        let entry = entry?;
+        let file_type = entry.file_type()?;
+        if file_type.is_dir() {
+            collect_files(root, &entry.path(), files, depth - 1, cap)?;
+        } else if let Ok(relative) = entry.path().strip_prefix(root) {
+            files.push(relative.to_string_lossy().to_string());
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
 pub async fn chat_decide(task_id: String, approved: bool, approval: State<'_, ApprovalBroker>) -> Result<bool, String> {
     let id = uuid::Uuid::parse_str(&task_id).map_err(|e| format!("invalid task id: {e}"))?;
     Ok(approval.decide(id, if approved { ApprovalDecision::Approved } else { ApprovalDecision::Rejected }))
@@ -225,6 +276,9 @@ pub fn bindings() -> tauri_specta::Builder<tauri::Wry> {
         chat_threads_list,
         chat_thread_create,
         chat_messages_list,
+        chat_search,
+        chat_workspace_files,
+        chat_workspace_read,
         chat_decide,
         chat_screenshot,
         chat_send

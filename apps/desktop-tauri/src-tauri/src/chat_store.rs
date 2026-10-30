@@ -59,6 +59,20 @@ pub struct ChatStore {
     pool: SqlitePool,
 }
 
+/// One FTS5 transcript hit (M3 local search).
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchHit {
+    pub thread_id: String,
+    pub bot_id: String,
+    pub thread_title: String,
+    pub message_id: String,
+    pub kind: String,
+    /// A short excerpt with the matched terms marked.
+    pub snippet: String,
+    pub created_at: String,
+}
+
 impl ChatStore {
     /// Opens (creating when needed) the chat database and runs migrations.
     pub async fn open(path: impl AsRef<Path>) -> Result<Self, String> {
@@ -285,6 +299,39 @@ impl ChatStore {
         Ok(())
     }
 
+    /// Full-text search across the transcript via the FTS5 index. The query is
+    /// treated as a single phrase (each token quoted) so user input can never
+    /// be read as FTS5 operators.
+    pub async fn search(&self, query: &str, limit: i64) -> Result<Vec<SearchHit>, String> {
+        let tokens: Vec<String> = query.split_whitespace().map(|token| format!("\"{}\"", token.replace('"', "\"\""))).collect();
+        if tokens.is_empty() {
+            return Ok(Vec::new());
+        }
+        let match_query = tokens.join(" ");
+        let rows = sqlx::query(
+            "SELECT m.thread_id, t.bot_id, t.title AS thread_title, m.id AS message_id, m.kind, snippet(messages_fts, 0, '[', ']', ' … ', 12) AS snippet, m.created_at \
+             FROM messages_fts JOIN messages m ON m.rowid = messages_fts.rowid JOIN threads t ON t.id = m.thread_id \
+             WHERE messages_fts MATCH ? ORDER BY rank LIMIT ?",
+        )
+        .bind(&match_query)
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| e.to_string())?;
+        Ok(rows
+            .iter()
+            .map(|row| SearchHit {
+                thread_id: row.get("thread_id"),
+                bot_id: row.get("bot_id"),
+                thread_title: row.get("thread_title"),
+                message_id: row.get("message_id"),
+                kind: row.get("kind"),
+                snippet: row.get("snippet"),
+                created_at: row.get("created_at"),
+            })
+            .collect())
+    }
+
     pub async fn set_setting(&self, key: &str, value: &str) -> Result<(), String> {
         sqlx::query("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value")
             .bind(key)
@@ -382,6 +429,25 @@ mod tests {
         let threads = store.threads(&bot.id).await.unwrap();
         assert_eq!(threads[0].title, "hello world");
         assert_eq!(store.bots().await.unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn full_text_search_ranks_and_snippets() {
+        let store = ChatStore::in_memory().await.unwrap();
+        let bot = store.create_bot("Chief", "", "m").await.unwrap();
+        let thread = store.create_thread(&bot.id, "").await.unwrap();
+        store.append_message(&thread.id, "user", "deploy the postgres backup", false).await.unwrap();
+        store.append_message(&thread.id, "assistant", "the backup finished", false).await.unwrap();
+        store.append_message(&thread.id, "user", "unrelated weather today", false).await.unwrap();
+
+        let hits = store.search("postgres backup", 10).await.unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].thread_id, thread.id);
+        assert!(hits[0].snippet.contains("postgres"));
+
+        // Operators in user text are treated as plain words, never FTS syntax.
+        assert!(store.search("backup AND weather", 10).await.unwrap().is_empty());
+        assert_eq!(store.search("", 10).await.unwrap().len(), 0);
     }
 
     #[tokio::test]

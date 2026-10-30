@@ -126,8 +126,17 @@ accounts, billing); mobile push; hosted providers.
   only `kind='chat'` rows so activity never pollutes the conversation. A
   user-initiated `chat_screenshot` (macOS `screencapture`) previews the desktop
   in the chat.
-- **M3 — next:** memory (MEMORY.md semantics), artifacts on disk, and FTS5
-  search over local content.
+- **M3 — done (2026-10-30).** Local content, searchable and inspectable.
+  An external-content FTS5 index (migration 0003) with triggers mirrors the
+  transcript; `chat_search` ranks by bm25 and returns marked snippets, user
+  input is quoted token-by-token so it can never be read as FTS syntax. The
+  workspace doubles as the artifact store: `chat_workspace_files`/
+  `chat_workspace_read` let the UI browse and preview what the agent wrote
+  (bot ids are uuid-validated before becoming path segments). The agent gains
+  an explicit `memory.recall` tool beside `memory.remember`. UI: a search box
+  with cross-thread hits (clicking one jumps bots and threads), and a Files
+  panel with file previews.
+- **M4 — next:** native scheduler for routines and usage totals.
 
 ## Risks
 
