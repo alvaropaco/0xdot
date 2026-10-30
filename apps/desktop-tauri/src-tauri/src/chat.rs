@@ -21,6 +21,7 @@ use rakazo_core::{
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use specta::Type;
+use std::collections::HashMap;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::sync::mpsc::UnboundedSender;
@@ -217,6 +218,91 @@ pub async fn chat_usage(store: State<'_, ChatStore>) -> Result<UsageTotals, Stri
     store.usage_totals().await
 }
 
+/// A persisted MCP server joined with its live state. `env` values never
+/// cross the IPC boundary - only their key names (M5).
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct McpServerView {
+    pub id: String,
+    pub command: String,
+    pub args: Vec<String>,
+    pub env_keys: Vec<String>,
+    pub connected: bool,
+    pub tools: Vec<String>,
+}
+
+fn mcp_view(server: &crate::chat_store::McpServerStored, mcp: &McpState) -> McpServerView {
+    let connected = mcp.is_connected(&server.id);
+    McpServerView {
+        id: server.id.clone(),
+        command: server.command.clone(),
+        args: server.args.clone(),
+        env_keys: server.env.keys().cloned().collect(),
+        connected,
+        tools: if connected { mcp.tool_names(&server.id) } else { Vec::new() },
+    }
+}
+
+fn connect_server(mcp: &McpState, server: &crate::chat_store::McpServerStored) -> Result<(), String> {
+    let config = rakazo_core::McpServerConfig { command: server.command.clone(), args: server.args.clone(), env: server.env.clone() };
+    mcp.connect(crate::mcp_state::McpConnectRequest { id: server.id.clone(), config }).map(|_| ())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn chat_mcp_list(store: State<'_, ChatStore>, mcp: State<'_, McpState>) -> Result<Vec<McpServerView>, String> {
+    let rows = store.mcp_server_rows().await?;
+    Ok(rows.iter().map(|(_, server)| mcp_view(server, mcp.inner())).collect())
+}
+
+/// Saves the server definition first and connects second: an MCP server that
+/// fails to start keeps its saved config and simply shows `connected: false`,
+/// so the agent picks its tools up on a later launch.
+#[tauri::command]
+#[specta::specta]
+pub async fn chat_mcp_connect(store: State<'_, ChatStore>, mcp: State<'_, McpState>, id: String, command: String, args: Vec<String>, env: HashMap<String, String>) -> Result<McpServerView, String> {
+    let id = id.trim().to_string();
+    if id.is_empty() || id.contains('/') || id.contains('\\') {
+        return Err("server id must be a simple name".into());
+    }
+    if command.trim().is_empty() {
+        return Err("server command is required".into());
+    }
+    store.save_mcp_server(&id, command.trim(), &json!(args).to_string(), &json!(env).to_string()).await?;
+    let server = crate::chat_store::McpServerStored { id, command: command.trim().to_string(), args, env };
+    let mcp_owned = mcp.inner().clone();
+    let connect_server_owned = server.clone();
+    // The handshake reads the child's stdout, so it runs off the async
+    // runtime's worker threads with a short budget: a slow server keeps
+    // connecting in the background and shows up connected on the next refresh.
+    let _ = tokio::time::timeout(std::time::Duration::from_secs(3), tauri::async_runtime::spawn_blocking(move || connect_server(&mcp_owned, &connect_server_owned))).await;
+    Ok(mcp_view(&server, mcp.inner()))
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn chat_mcp_remove(store: State<'_, ChatStore>, mcp: State<'_, McpState>, id: String) -> Result<bool, String> {
+    let _ = mcp.disconnect(&id);
+    store.remove_mcp_server(&id).await
+}
+
+/// Best-effort reconnect of every saved MCP server at startup. A server that
+/// is broken today still shows up (unconnected) and its tools reappear once
+/// it starts.
+pub async fn reconnect_saved_servers(app: &AppHandle) {
+    let store = app.state::<ChatStore>().inner().clone();
+    let mcp = app.state::<McpState>().inner().clone();
+    let Ok(rows) = store.mcp_server_rows().await else { return };
+    for (_, server) in rows {
+        let mcp = mcp.clone();
+        // Each server connects on its own task: a broken one that never
+        // answers the handshake must not delay the healthy ones.
+        tauri::async_runtime::spawn(async move {
+            let _ = tauri::async_runtime::spawn_blocking(move || connect_server(&mcp, &server)).await;
+        });
+    }
+}
+
 /// Lists the bot's workspace files (artifacts the agent wrote) recursively.
 /// The bot id is validated as a uuid before it becomes a path segment, so no
 /// caller can escape the workspaces directory.
@@ -322,6 +408,9 @@ pub fn bindings() -> tauri_specta::Builder<tauri::Wry> {
         chat_routine_remove,
         chat_routine_set_enabled,
         chat_usage,
+        chat_mcp_list,
+        chat_mcp_connect,
+        chat_mcp_remove,
         chat_send
     ])
 }

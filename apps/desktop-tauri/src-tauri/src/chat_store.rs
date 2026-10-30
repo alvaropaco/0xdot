@@ -100,6 +100,16 @@ pub struct UsageTotals {
     pub output_tokens: i32,
 }
 
+/// A stored MCP server row with secrets intact - for the runtime's reconnect,
+/// never handed to the UI across IPC (M5).
+#[derive(Clone)]
+pub struct McpServerStored {
+    pub id: String,
+    pub command: String,
+    pub args: Vec<String>,
+    pub env: std::collections::HashMap<String, String>,
+}
+
 impl ChatStore {
     /// Opens (creating when needed) the chat database and runs migrations.
     pub async fn open(path: impl AsRef<Path>) -> Result<Self, String> {
@@ -359,6 +369,50 @@ impl ChatStore {
             .collect())
     }
 
+    /// A persisted MCP server definition. Values of `env` may be secret and
+    /// stay in the local database; only rows for the runtime's reconnect read
+    /// them.
+    pub async fn save_mcp_server(&self, id: &str, command: &str, args_json: &str, env_json: &str) -> Result<(), String> {
+        sqlx::query("INSERT INTO mcp_servers (id, command, args, env, created_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT (id) DO UPDATE SET command = excluded.command, args = excluded.args, env = excluded.env")
+            .bind(id)
+            .bind(command)
+            .bind(args_json)
+            .bind(env_json)
+            .bind(Self::now())
+            .execute(&self.pool)
+            .await
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub async fn mcp_server_rows(&self) -> Result<Vec<(String, McpServerStored)>, String> {
+        let rows = sqlx::query("SELECT id, command, args, env FROM mcp_servers ORDER BY created_at")
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| e.to_string())?;
+        let mut servers = Vec::new();
+        for row in rows {
+            let id: String = row.get("id");
+            let command: String = row.get("command");
+            let args: Vec<String> = serde_json::from_str(&row.get::<String, _>("args")).unwrap_or_default();
+            let env: std::collections::HashMap<String, String> = serde_json::from_str(&row.get::<String, _>("env")).unwrap_or_default();
+            servers.push((
+                id.clone(),
+                McpServerStored { id, command, args, env },
+            ));
+        }
+        Ok(servers)
+    }
+
+    pub async fn remove_mcp_server(&self, id: &str) -> Result<bool, String> {
+        let result = sqlx::query("DELETE FROM mcp_servers WHERE id = ?")
+            .bind(id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| e.to_string())?;
+        Ok(result.rows_affected() > 0)
+    }
+
     pub async fn set_setting(&self, key: &str, value: &str) -> Result<(), String> {
         sqlx::query("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value")
             .bind(key)
@@ -587,6 +641,27 @@ mod tests {
         let threads = store.threads(&bot.id).await.unwrap();
         assert_eq!(threads[0].title, "hello world");
         assert_eq!(store.bots().await.unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn mcp_servers_round_trip_with_json_columns() {
+        let store = ChatStore::in_memory().await.unwrap();
+        store
+            .save_mcp_server("fs", "npx", r#"["-y","server-fs"]"#, r#"{"TOKEN":"s3cr3t"}"#)
+            .await
+            .unwrap();
+        let rows = store.mcp_server_rows().await.unwrap();
+        assert_eq!(rows.len(), 1);
+        let (id, config) = &rows[0];
+        assert_eq!(id, "fs");
+        assert_eq!(config.command, "npx");
+        assert_eq!(config.args, vec!["-y".to_string(), "server-fs".to_string()]);
+        assert_eq!(config.env.get("TOKEN").map(String::as_str), Some("s3cr3t"));
+        store.save_mcp_server("fs", "docker", "[]", "{}").await.unwrap();
+        let refreshed = store.mcp_server_rows().await.unwrap();
+        assert_eq!(refreshed[0].1.command, "docker");
+        assert!(store.remove_mcp_server("fs").await.unwrap());
+        assert!(store.mcp_server_rows().await.unwrap().is_empty());
     }
 
     #[tokio::test]

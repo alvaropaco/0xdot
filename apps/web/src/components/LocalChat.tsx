@@ -5,6 +5,7 @@ import {
   type ChatMessage,
   type ChatThread,
   chat,
+  type McpServerView,
   onChatActivity,
   onChatDelta,
   onChatDone,
@@ -72,6 +73,12 @@ export function LocalChat() {
   const [routineName, setRoutineName] = useState("");
   const [routinePrompt, setRoutinePrompt] = useState("");
   const [routineInterval, setRoutineInterval] = useState("3600");
+  const [showMcp, setShowMcp] = useState(false);
+  const [mcpServers, setMcpServers] = useState<McpServerView[]>([]);
+  const [mcpId, setMcpId] = useState("");
+  const [mcpCommand, setMcpCommand] = useState("");
+  const [mcpArgs, setMcpArgs] = useState("");
+  const [mcpEnv, setMcpEnv] = useState("");
 
   // Events fire from the native runtime; a ref keeps the handlers reading the
   // thread the user is actually looking at, not the one they were captured on.
@@ -312,6 +319,41 @@ export function LocalChat() {
     setRoutines((current) => current.filter((row) => row.id !== routineId));
   };
 
+  const refreshMcp = async () => {
+    try {
+      setMcpServers(await chat.mcpList());
+    } catch (cause) {
+      setError((cause as Error).message);
+    }
+  };
+
+  const toggleMcp = async () => {
+    const next = !showMcp;
+    setShowMcp(next);
+    if (next) await refreshMcp();
+  };
+
+  const addMcpServer = async () => {
+    if (!mcpId.trim() || !mcpCommand.trim()) return;
+    const args = mcpArgs.trim() ? mcpArgs.trim().split(/\s+/) : [];
+    const env: Record<string, string> = {};
+    for (const pair of mcpEnv.split(/[\n,]+/)) {
+      const index = pair.indexOf("=");
+      if (index > 0) env[pair.slice(0, index).trim()] = pair.slice(index + 1).trim();
+    }
+    const view = await chat.mcpConnect(mcpId.trim(), mcpCommand.trim(), args, env);
+    setMcpServers((current) => [...current.filter((row) => row.id !== view.id), view]);
+    setMcpId("");
+    setMcpCommand("");
+    setMcpArgs("");
+    setMcpEnv("");
+  };
+
+  const removeMcpServer = async (id: string) => {
+    await chat.mcpRemove(id);
+    setMcpServers((current) => current.filter((row) => row.id !== id));
+  };
+
   const decide = (taskId: string, approved: boolean) => {
     void chat.decide(taskId, approved).catch((cause: Error) => setError(cause.message));
   };
@@ -395,6 +437,13 @@ export function LocalChat() {
             onClick={() => void toggleRoutines()}
           >
             Routines
+          </Button>
+          <Button
+            size="sm"
+            variant={showMcp ? "secondary" : "ghost"}
+            onClick={() => void toggleMcp()}
+          >
+            MCP
           </Button>
           <Button size="sm" variant="ghost" onClick={() => setShowSettings((current) => !current)}>
             Model
@@ -541,6 +590,71 @@ export function LocalChat() {
               {usage.turns} turns · {usage.inputTokens} in / {usage.outputTokens} out tokens
             </p>
           )}
+        </section>
+      )}
+
+      {showMcp && (
+        <section
+          className="mt-3 flex flex-col gap-2 rounded-lg border border-border bg-card p-3"
+          data-testid="mcp-panel"
+        >
+          {mcpServers.map((server) => (
+            <div key={server.id} className="flex items-center gap-2 text-sm">
+              <span className="font-medium">{server.id}</span>
+              <span className="text-xs text-muted-foreground">
+                {server.command} {server.args.join(" ")}
+              </span>
+              <span className="text-xs text-muted-foreground">
+                {server.connected ? `${server.tools.length} tools` : "offline"}
+              </span>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="ms-auto"
+                onClick={() => void removeMcpServer(server.id)}
+              >
+                Remove
+              </Button>
+            </div>
+          ))}
+          {mcpServers.length === 0 && <p className="text-sm text-muted-foreground">No servers.</p>}
+          <div className="flex flex-wrap items-end gap-2">
+            <Input
+              aria-label="Server id"
+              placeholder="Id"
+              value={mcpId}
+              onChange={(event) => setMcpId(event.target.value)}
+              className="w-24"
+            />
+            <Input
+              aria-label="Server command"
+              placeholder="Command"
+              value={mcpCommand}
+              onChange={(event) => setMcpCommand(event.target.value)}
+              className="w-40"
+            />
+            <Input
+              aria-label="Server arguments"
+              placeholder="Args"
+              value={mcpArgs}
+              onChange={(event) => setMcpArgs(event.target.value)}
+              className="w-40"
+            />
+            <Input
+              aria-label="Server environment"
+              placeholder="KEY=VALUE"
+              value={mcpEnv}
+              onChange={(event) => setMcpEnv(event.target.value)}
+              className="w-40"
+            />
+            <Button
+              size="sm"
+              onClick={() => void addMcpServer()}
+              disabled={!mcpId.trim() || !mcpCommand.trim()}
+            >
+              Connect
+            </Button>
+          </div>
         </section>
       )}
 

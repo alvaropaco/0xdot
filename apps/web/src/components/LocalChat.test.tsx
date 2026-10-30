@@ -134,6 +134,25 @@ vi.mock("../lib/tauri/chat-bridge", () => ({
     removeRoutine: vi.fn(async () => true),
     setRoutineEnabled: vi.fn(async () => undefined),
     usage: vi.fn(async () => ({ turns: 3, inputTokens: 120, outputTokens: 45 })),
+    mcpList: vi.fn(async () => [
+      {
+        id: "fs",
+        command: "npx",
+        args: ["-y", "server-fs"],
+        envKeys: ["TOKEN"],
+        connected: true,
+        tools: ["read_file", "write_file"],
+      },
+    ]),
+    mcpConnect: vi.fn(async (id: string, command: string, args: string[]) => ({
+      id,
+      command,
+      args,
+      envKeys: [],
+      connected: false,
+      tools: [],
+    })),
+    mcpRemove: vi.fn(async () => true),
   },
   onChatDelta: vi.fn(async (handler: (payload: ChatDeltaPayload) => void) => {
     deltaHandlers.push(handler);
@@ -370,5 +389,30 @@ describe("LocalChat", () => {
     clickButton("Pause");
     await flush();
     expect(chat.setRoutineEnabled).toHaveBeenCalledWith("r1", false);
+  });
+
+  it("lists MCP servers and connects a new one", async () => {
+    await renderChat();
+    clickButton("MCP");
+    await flush();
+    expect(chat.mcpList).toHaveBeenCalled();
+    const panel = host.querySelector('[data-testid="mcp-panel"]');
+    expect(panel?.textContent).toContain("fs");
+    expect(panel?.textContent).toContain("2 tools");
+
+    await typeInto('[aria-label="Server id"]', "db");
+    await typeInto('[aria-label="Server command"]', "npx");
+    await typeInto('[aria-label="Server arguments"]', "-y db-mcp");
+    await typeInto('[aria-label="Server environment"]', "TOKEN=abc123");
+    clickButton("Connect");
+    await flush();
+    expect(chat.mcpConnect).toHaveBeenCalledWith("db", "npx", ["-y", "db-mcp"], {
+      TOKEN: "abc123",
+    });
+    expect(panel?.textContent).toContain("db");
+
+    clickButton("Remove");
+    await flush();
+    expect(chat.mcpRemove).toHaveBeenCalledWith("fs");
   });
 });

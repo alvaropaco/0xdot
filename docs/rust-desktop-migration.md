@@ -150,7 +150,18 @@ accounts, billing); mobile push; hosted providers.
   builder but not in tauri's `generate_handler!`, so they were uncallable at
   runtime; unit + mocked-web tests don't cover IPC registration, so CI stayed
   green. All chat commands are now registered and verified to be reachable.
-- **M5 — next:** local MCP (connect/list/call through the bridge).
+- **M5 — done (2026-10-30).** MCP runs locally. Server definitions (command,
+  args, env with secret values) persist in SQLite (migration 0005); the app
+  reconnects saved servers concurrently at startup, each on its own blocking
+  task so a broken server never delays the others or the window. The chat
+  commands `chat_mcp_list` / `chat_mcp_connect` / `chat_mcp_remove` join the
+  generated bindings, env values stay behind the IPC boundary (the UI sees key
+  names, connection status and live tool names), and a server that fails to
+  start keeps its definition and shows as offline. The agent already routes
+  `mcp.call_tool` through the approval gate, so MCP tools the model uses are
+  gated like the rest of the computer.
+- **M6 — next:** the parity sweep (groups, boards, export, links, voice,
+  messaging) - per group, port or consciously cut from the desktop product.
 
 ## Risks
 

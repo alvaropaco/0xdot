@@ -14,6 +14,7 @@ export type {
   ChatMessage,
   ChatSettings,
   ChatThread,
+  McpServerView,
   ScheduledRoutine,
   Screenshot,
   SearchHit,
@@ -75,6 +76,10 @@ export const chat = {
   setRoutineEnabled: (routineId: string, enabled: boolean) =>
     unwrap(chatCommands.chatRoutineSetEnabled(routineId, enabled)),
   usage: () => unwrap(chatCommands.chatUsage()),
+  mcpList: () => unwrap(chatCommands.chatMcpList()),
+  mcpConnect: (id: string, command: string, args: string[], env: Record<string, string>) =>
+    unwrap(chatCommands.chatMcpConnect(id, command, args, env)),
+  mcpRemove: (id: string) => unwrap(chatCommands.chatMcpRemove(id)),
 };
 
 function on<T>(topic: string, handler: (payload: T) => void): Promise<() => void> {

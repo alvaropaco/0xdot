@@ -35,6 +35,14 @@ export const commands = {
 	chatRoutineRemove: (routineId: string) => typedError<boolean, string>(__TAURI_INVOKE("chat_routine_remove", { routineId })),
 	chatRoutineSetEnabled: (routineId: string, enabled: boolean) => typedError<null, string>(__TAURI_INVOKE("chat_routine_set_enabled", { routineId, enabled })),
 	chatUsage: () => typedError<UsageTotals, string>(__TAURI_INVOKE("chat_usage")),
+	chatMcpList: () => typedError<McpServerView[], string>(__TAURI_INVOKE("chat_mcp_list")),
+	/**
+	 *  Saves the server definition first and connects second: an MCP server that
+	 *  fails to start keeps its saved config and simply shows `connected: false`,
+	 *  so the agent picks its tools up on a later launch.
+	 */
+	chatMcpConnect: (id: string, command: string, args: string[], env: { [key in string]: string }) => typedError<McpServerView, string>(__TAURI_INVOKE("chat_mcp_connect", { id, command, args, env })),
+	chatMcpRemove: (id: string) => typedError<boolean, string>(__TAURI_INVOKE("chat_mcp_remove", { id })),
 	/**
 	 *  Persists the user message, accepts immediately, and drives the agent turn
 	 *  in the background: deltas stream through events, tool and approval activity
@@ -87,6 +95,19 @@ export type ChatThread = {
 	title: string,
 	createdAt: string,
 	updatedAt: string,
+};
+
+/**
+ *  A persisted MCP server joined with its live state. `env` values never
+ *  cross the IPC boundary - only their key names (M5).
+ */
+export type McpServerView = {
+	id: string,
+	command: string,
+	args: string[],
+	envKeys: string[],
+	connected: boolean,
+	tools: string[],
 };
 
 /**
