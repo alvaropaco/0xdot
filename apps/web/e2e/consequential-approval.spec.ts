@@ -3,6 +3,8 @@ import {
   activeBotId,
   captureScreenshot,
   completeOnboarding,
+  createIsolatedSpace,
+  disposeIsolatedSpace,
   openUserSettings,
   rpc,
   signup,
@@ -12,11 +14,15 @@ test("actions run by default while optional confirmations live in space settings
   page,
 }, testInfo) => {
   const stamp = Date.now();
+  // Own Space: confirmation rules and their waiting_input holds are per space,
+  // and a concurrent spec's send would join or supersede these held runs.
+  const spaceId = await createIsolatedSpace(page, `Action confirmations ${stamp}`);
+  const spaceHeaders = { "x-rakazo-space-id": spaceId };
   await signup(page, `action-confirmations-${stamp}@rakazo.test`, "password12", "Approval UI");
   await completeOnboarding(page, testInfo);
 
   await sendDestinationWrite(page, "write this to the destination crm as a note");
-  await waitForRunIdle(page);
+  await waitForRunIdle(page, spaceHeaders);
   await expectComposerReady(page);
   await expect(page.getByRole("button", { name: "Allow once", exact: true })).toHaveCount(0);
   await captureScreenshot(page, testInfo, "50-actions-run-without-confirmation");
@@ -51,13 +57,22 @@ test("actions run by default while optional confirmations live in space settings
   await captureScreenshot(page, testInfo, "52-advanced-action-confirmations");
   await settings.getByRole("button", { name: "Close user settings" }).click();
 
-  await rpc(page, "approvalRules/set", {
-    effect: "require_approval",
-    matchKind: "connector",
-    matchValue: "destination.write",
-  });
+  await rpc(
+    page,
+    "approvalRules/set",
+    {
+      effect: "require_approval",
+      matchKind: "connector",
+      matchValue: "destination.write",
+    },
+    spaceHeaders,
+  );
 
-  await requestDestinationWrite(page, "write this to the destination crm as a note again");
+  await requestDestinationWrite(
+    page,
+    "write this to the destination crm as a note again",
+    spaceHeaders,
+  );
   const allowOnce = page.getByRole("button", { name: "Allow once", exact: true });
   const alwaysAllow = page.getByRole("button", { name: "Always allow this tool", exact: true });
   const deny = page.getByRole("button", { name: "Deny", exact: true });
@@ -86,28 +101,33 @@ test("actions run by default while optional confirmations live in space settings
   await expect(page.getByTestId("transcript").getByText("Denied", { exact: true })).toHaveClass(
     /text-muted-foreground/,
   );
-  await waitForRunIdle(page);
+  await waitForRunIdle(page, spaceHeaders);
   await expectComposerReady(page);
   await captureScreenshot(page, testInfo, "54-action-confirmation-denied");
 
-  await requestDestinationWrite(page, "write this to the destination crm once more");
+  await requestDestinationWrite(page, "write this to the destination crm once more", spaceHeaders);
   await page.getByRole("button", { name: "Allow once", exact: true }).click();
   await expect(page.getByText("Allowed once", { exact: true })).toBeVisible();
-  await waitForRunIdle(page);
+  await waitForRunIdle(page, spaceHeaders);
   await expectComposerReady(page);
   await captureScreenshot(page, testInfo, "55-action-confirmation-allowed-once");
 
-  await requestDestinationWrite(page, "write this to the destination crm one final time");
+  await requestDestinationWrite(
+    page,
+    "write this to the destination crm one final time",
+    spaceHeaders,
+  );
   await page.getByRole("button", { name: "Always allow this tool", exact: true }).click();
   await expect(page.getByText("Always allowed", { exact: true })).toBeVisible();
-  await waitForRunIdle(page);
+  await waitForRunIdle(page, spaceHeaders);
   await expectComposerReady(page);
   await captureScreenshot(page, testInfo, "56-action-confirmation-always-allowed");
 
   await sendDestinationWrite(page, "write this to the destination crm after always allow");
-  await waitForRunIdle(page);
+  await waitForRunIdle(page, spaceHeaders);
   await expectComposerReady(page);
   await expect(page.getByRole("button", { name: "Allow once", exact: true })).toHaveCount(0);
+  await disposeIsolatedSpace(page, spaceId);
 });
 
 async function sendDestinationWrite(page: Page, prompt: string) {
@@ -128,15 +148,22 @@ async function expectComposerReady(page: Page) {
   await expect(page.getByRole("button", { name: "Stop", exact: true })).toHaveCount(0);
 }
 
-async function requestDestinationWrite(page: Page, prompt: string) {
+async function requestDestinationWrite(
+  page: Page,
+  prompt: string,
+  headers?: Record<string, string>,
+) {
   await sendDestinationWrite(page, prompt);
   const botId = activeBotId(page);
   await expect
     .poll(
       async () => {
-        const snapshot = await rpc<{ run?: { status: string } | null }>(page, "threads/get", {
-          botId,
-        });
+        const snapshot = await rpc<{ run?: { status: string } | null }>(
+          page,
+          "threads/get",
+          { botId },
+          headers,
+        );
         return snapshot.run?.status ?? null;
       },
       { timeout: 30_000 },
@@ -152,14 +179,17 @@ async function requestDestinationWrite(page: Page, prompt: string) {
   });
 }
 
-async function waitForRunIdle(page: Page) {
+async function waitForRunIdle(page: Page, headers?: Record<string, string>) {
   const botId = activeBotId(page);
   await expect
     .poll(
       async () => {
-        const snapshot = await rpc<{ run?: { status: string } | null }>(page, "threads/get", {
-          botId,
-        });
+        const snapshot = await rpc<{ run?: { status: string } | null }>(
+          page,
+          "threads/get",
+          { botId },
+          headers,
+        );
         return snapshot.run?.status ?? null;
       },
       { timeout: 30_000 },

@@ -69,6 +69,30 @@ export async function createIsolatedSpace(page: Page, name: string): Promise<str
   return space.id;
 }
 
+/**
+ * Releases an isolated Space once the test's last assertion has run. The single
+ * owner pays a hard per-member Space cap (32) that the whole shard shares: a
+ * spec that keeps its Space parks a slot for every later test, and late
+ * `spaces/create` calls start failing once the pool is exhausted. Delete the
+ * Space's bots and groups first — removal only accepts an empty Space.
+ */
+export async function disposeIsolatedSpace(page: Page, spaceId: string): Promise<void> {
+  const headers = { "x-rakazo-space-id": spaceId };
+  for (const procedure of ["bots/list", "bots/listArchived"] as const) {
+    const bots = await rpc<Array<{ id: string }>>(page, procedure, {}, headers);
+    for (const bot of bots) {
+      await rpc(page, "bots/remove", { botId: bot.id, deleteMemories: true }, headers);
+    }
+  }
+  for (const procedure of ["groups/list", "groups/listArchived"] as const) {
+    const groups = await rpc<Array<{ id: string }>>(page, procedure, {}, headers);
+    for (const group of groups) {
+      await rpc(page, "groups/remove", { groupId: group.id }, headers);
+    }
+  }
+  await rpc(page, "spaces/remove", { spaceId }, headers);
+}
+
 export async function completeOnboarding(page: Page, testInfo?: TestInfo) {
   await page.waitForURL(/\/(onboarding|app)/, { timeout: 20_000 });
   // Optional Server integrations step (needsSetup). Skip when shown, then the

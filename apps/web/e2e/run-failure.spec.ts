@@ -56,6 +56,10 @@ function seenRunErrorCount(page: Page) {
 
 test("a failed run is visible once without returning after reload", async ({ page }, testInfo) => {
   const stamp = Date.now();
+  // Own Space: a concurrent spec's message on the shared Chief joins or
+  // supersedes this test's run, and its failure never reaches this composer.
+  // No test-side rpc here needs the space id; the app carries it per request.
+  await createIsolatedSpace(page, `Run failure ${stamp}`);
   await signup(page, `run-failure-${stamp}@rakazo.test`, "password12", "Run Failure");
   await completeOnboarding(page);
 
@@ -177,6 +181,8 @@ test("a covered run error is not remembered until it is presented", async ({ pag
 });
 
 test("an overloaded provider is named instead of a generic error", async ({ page }, testInfo) => {
+  // Own Space: only this test's failing run surfaces in this composer.
+  await createIsolatedSpace(page, `Overloaded run ${Date.now()}`);
   await signup(page, `overloaded-run-${Date.now()}@rakazo.test`, "password12", "Overloaded Run");
   await completeOnboarding(page);
 
@@ -195,6 +201,8 @@ test("an overloaded provider is named instead of a generic error", async ({ page
 test("a model too small for required instructions offers a model change", async ({
   page,
 }, testInfo) => {
+  // Own Space: only this test's failing run surfaces in this composer.
+  await createIsolatedSpace(page, `Context run ${Date.now()}`);
   await signup(page, `context-run-${Date.now()}@rakazo.test`, "password12", "Context Run");
   await completeOnboarding(page);
   await page.getByPlaceholder(/^Message /).fill("fail this run with fixed context");
@@ -210,6 +218,8 @@ test("a model too small for required instructions offers a model change", async 
 });
 
 test("a failed run explains that backup models also failed", async ({ page }, testInfo) => {
+  // Own Space: only this test's failing run surfaces in this composer.
+  await createIsolatedSpace(page, `Backup failure ${Date.now()}`);
   await signup(page, `backup-failure-${Date.now()}@rakazo.test`, "password12", "Backup Failure");
   await completeOnboarding(page);
   await page.getByPlaceholder(/^Message /).fill("fail this run with exhausted backups");

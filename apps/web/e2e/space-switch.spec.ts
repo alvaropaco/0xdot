@@ -76,14 +76,14 @@ test("going back during a slow switch keeps the user where they went", async ({ 
   });
   const { json: helperBot } = (await helper.json()) as { json: { id: string } };
   const otherSpace = await page.request.post("/rpc/spaces/create", {
-    data: { json: { name: "Second space" } },
+    data: { json: { name: `Second space ${stamp}` } },
   });
   const { json: space } = (await otherSpace.json()) as { json: { id: string } };
-  await page.request.post("/rpc/bots/create", {
+  const created = await page.request.post("/rpc/bots/create", {
     headers: { "x-rakazo-space-id": space.id },
     data: {
       json: {
-        name: "Scout",
+        name: `Scout ${stamp}`,
         title: "",
         description: "",
         notifyOnFinish: true,
@@ -91,11 +91,12 @@ test("going back during a slow switch keeps the user where they went", async ({ 
       },
     },
   });
+  const { json: scout } = (await created.json()) as { json: { id: string } };
   await page.reload();
-  await page
-    .getByRole("button", { name: /Helper/ })
-    .first()
-    .click();
+  // The sidebar lists every Space's roster. Match this test's bots by id; a
+  // concurrent spec's identically named bot would switch to its own Space
+  // quickly and leave this test waiting on the wrong history entry.
+  await page.locator(`[data-roster-bot-id="${helperBot.id}"]`).click();
   await page.waitForURL(`**/app/${helperBot.id}`);
   const homeSpace = await page.evaluate(() => window.localStorage.getItem("rakazo:space-id"));
   expect(homeSpace).not.toBe(space.id);
@@ -109,7 +110,7 @@ test("going back during a slow switch keeps the user where they went", async ({ 
     if (route.request().headers()["x-rakazo-space-id"] === space.id) await held;
     await route.continue();
   });
-  await page.getByRole("button", { name: /Scout/ }).first().click();
+  await page.locator(`[data-roster-bot-id="${scout.id}"]`).click();
   await page.goBack();
   await page.waitForURL(`**${firstBot}`);
   release();

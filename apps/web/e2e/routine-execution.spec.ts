@@ -1,6 +1,13 @@
 import { expect, test } from "@playwright/test";
 import type { Routine } from "@rakazo/contracts";
-import { activeBotId, captureScreenshot, completeOnboarding, rpc, signup } from "./helpers";
+import {
+  activeBotId,
+  captureScreenshot,
+  completeOnboarding,
+  createIsolatedSpace,
+  rpc,
+  signup,
+} from "./helpers";
 
 test("Slack message and GitHub event triggers persist their settings", async ({
   page,
@@ -14,6 +21,10 @@ test("Slack message and GitHub event triggers persist their settings", async ({
     }),
   );
   const stamp = Date.now();
+  // Own Space: routine fixtures, runs, and chat replies stay out of the shared
+  // Chief thread, where a concurrent spec's message would join this run.
+  const spaceId = await createIsolatedSpace(page, `Routine triggers ${stamp}`);
+  const spaceHeaders = { "x-rakazo-space-id": spaceId };
   await signup(page, `routine-triggers-${stamp}@rakazo.test`, "password12", "Trigger Routine");
   await completeOnboarding(page);
   const botId = activeBotId(page);
@@ -23,7 +34,7 @@ test("Slack message and GitHub event triggers persist their settings", async ({
     );
     await page.getByRole("button", { name: "Save", exact: true }).click();
     await saved;
-    const routines = await rpc<Routine[]>(page, "routines/list", { botId });
+    const routines = await rpc<Routine[]>(page, "routines/list", { botId }, spaceHeaders);
     return routines.find((routine) => routine.name === name);
   };
 
@@ -107,6 +118,8 @@ test("Korean webhook routine keeps technical field labels in English", async ({
 
 test("routine test-run completes and survives reload", async ({ page }, testInfo) => {
   const stamp = Date.now();
+  const spaceId = await createIsolatedSpace(page, `Routine run ${stamp}`);
+  const spaceHeaders = { "x-rakazo-space-id": spaceId };
   await signup(page, `routine-${stamp}@rakazo.test`, "password12", "Routine");
   await completeOnboarding(page);
 
@@ -147,14 +160,20 @@ test("routine test-run completes and survives reload", async ({ page }, testInfo
   const botId = activeBotId(page);
   await expect
     .poll(async () => {
-      const routines = await rpc<Array<{ id: string; name: string }>>(page, "routines/list", {
-        botId,
-      });
+      const routines = await rpc<Array<{ id: string; name: string }>>(
+        page,
+        "routines/list",
+        { botId },
+        spaceHeaders,
+      );
       const daily = routines.find((entry) => entry.name === "Daily verification");
       if (!daily) return 0;
-      const history = await rpc<{ runs: Array<{ id: string }> }>(page, "routines/history", {
-        routineId: daily.id,
-      });
+      const history = await rpc<{ runs: Array<{ id: string }> }>(
+        page,
+        "routines/history",
+        { routineId: daily.id },
+        spaceHeaders,
+      );
       return history.runs.length;
     })
     .toBeGreaterThanOrEqual(1);
@@ -188,34 +207,49 @@ test("routine test-run completes and survives reload", async ({ page }, testInfo
 });
 
 test("an unchanged routine completes without adding a chat reply", async ({ page }, testInfo) => {
-  await signup(page, `routine-silent-${Date.now()}@rakazo.test`, "password12", "Quiet Routine");
+  const stamp = Date.now();
+  // Own Space: a concurrent spec's chat message on the shared Chief would join
+  // this run mid-flight (thread-target attaches messages to the active run),
+  // leaving "fail this run" blocks tagged with this run's id.
+  const spaceId = await createIsolatedSpace(page, `Quiet routine ${stamp}`);
+  const spaceHeaders = { "x-rakazo-space-id": spaceId };
+  await signup(page, `routine-silent-${stamp}@rakazo.test`, "password12", "Quiet Routine");
   await completeOnboarding(page);
   const botId = activeBotId(page);
-  const routine = await rpc<Routine>(page, "routines/create", {
-    botId,
-    name: "Quiet release check",
-    prompt: "silent routine fixture",
-    crons: ["0 9 * * *"],
-    timezone: "UTC",
-    active: false,
-    notify: true,
-  });
-  const { runId } = await rpc<{ runId: string }>(page, "routines/testRun", {
-    routineId: routine.id,
-  });
+  const routine = await rpc<Routine>(
+    page,
+    "routines/create",
+    {
+      botId,
+      name: "Quiet release check",
+      prompt: "silent routine fixture",
+      crons: ["0 9 * * *"],
+      timezone: "UTC",
+      active: false,
+      notify: true,
+    },
+    spaceHeaders,
+  );
+  const { runId } = await rpc<{ runId: string }>(
+    page,
+    "routines/testRun",
+    { routineId: routine.id },
+    spaceHeaders,
+  );
   await expect
     .poll(async () => {
       const history = await rpc<{ runs: Array<{ id: string; status: string }> }>(
         page,
         "routines/history",
         { routineId: routine.id },
+        spaceHeaders,
       );
       return history.runs.find((run) => run.id === runId)?.status;
     })
     .toBe("completed");
   const snapshot = await rpc<{
     messages: Array<{ runId: string | null; blocks: Array<{ kind: string }> }>;
-  }>(page, "threads/get", { botId });
+  }>(page, "threads/get", { botId }, spaceHeaders);
   expect(
     snapshot.messages
       .filter((message) => message.runId === runId)

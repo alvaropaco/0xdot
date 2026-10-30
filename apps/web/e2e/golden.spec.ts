@@ -9,6 +9,7 @@ import {
   realSandboxTimeout,
   rpc,
   signup,
+  spaceRoster,
 } from "./helpers";
 
 test.describe.configure({ mode: "serial" });
@@ -504,10 +505,14 @@ test("bot context menu pins, duplicates, edits, and confirms deletion", async ({
   page,
 }, testInfo) => {
   const stamp = Date.now();
+  // Own Space: pins, unread marks, and the duplicate must not act on another
+  // spec's shared Chief, whose row also matches /Chief/ in a multi-Space sidebar.
+  const spaceId = await createIsolatedSpace(page, `golden menu ${stamp}`);
   await signup(page, `menu-${stamp}@rakazo.test`, "password12", "Menu");
   await completeOnboarding(page);
 
-  const chief = page.getByRole("button", { name: /Chief/ }).first();
+  const chiefId = activeBotId(page);
+  const chief = page.locator(`[data-roster-bot-id="${chiefId}"]`);
   await chief.click({ button: "right" });
   await expect(page.getByRole("menu", { name: "Actions for Chief" })).toBeVisible();
   await expect(page.getByRole("menuitem", { name: "Edit Profile" })).toBeVisible();
@@ -528,10 +533,11 @@ test("bot context menu pins, duplicates, edits, and confirms deletion", async ({
   await chief.click({ button: "right" });
   await expect(page.getByRole("menuitem", { name: "Unpin", exact: true })).toBeVisible();
   await page.getByRole("menuitem", { name: "Duplicate" }).click();
-  await expect(page.getByText("Chief copy").first()).toBeVisible();
+  const roster = spaceRoster(page, spaceId);
+  await expect(roster.getByRole("button", { name: /Chief copy/ })).toBeVisible();
   await captureScreenshot(page, testInfo, "17-pinned-and-duplicated-bot");
 
-  const copy = page.getByRole("button", { name: /Chief copy/ }).first();
+  const copy = roster.getByRole("button", { name: /Chief copy/ });
   await copy.click({ button: "right" });
   await page.getByRole("menuitem", { name: "Delete" }).click();
   await expect(page.getByRole("alertdialog", { name: "Delete Chief copy?" })).toBeVisible();

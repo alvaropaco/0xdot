@@ -4,6 +4,7 @@ import {
   activeBotId,
   captureScreenshot,
   completeOnboarding,
+  createIsolatedSpace,
   createNamedBot,
   expandAdvancedSection,
   realSandboxTimeout,
@@ -19,6 +20,9 @@ test("Team Computer gives bots a home folder plus shared space while Private sta
   const sharedMarker = `shared-${stamp}`;
   const privateMarker = `private-${stamp}`;
 
+  // Own Space: the team computer, its homes, and control leases are per-Space.
+  const spaceId = await createIsolatedSpace(page, `Team computer ${stamp}`);
+  const spaceHeaders = { "x-rakazo-space-id": spaceId };
   await signup(page, `team-computer-${stamp}@rakazo.test`, "password12", "Team Computer");
   await completeOnboarding(page);
   const chiefId = activeBotId(page);
@@ -29,59 +33,72 @@ test("Team Computer gives bots a home folder plus shared space while Private sta
   ).toBeVisible();
   await captureScreenshot(page, testInfo, "41-team-computer");
 
-  const writerId = await createBot(page, "Writer", "team");
+  const writerId = await createBot(page, "Writer", "team", spaceHeaders);
   await sendAndWait(
     page,
     writerId,
     `write a file in your home called notes/result.txt that says ${personalMarker}`,
+    spaceHeaders,
   );
 
-  await expect(readFile(page, writerId, "notes/result.txt")).resolves.toContain(personalMarker);
-  await expect(readFileResponse(page, chiefId, "notes/result.txt")).resolves.toMatchObject({
-    ok: false,
-  });
-  await expect(readFile(page, chiefId, `bots/${writerId}/notes/result.txt`)).resolves.toContain(
+  await expect(readFile(page, writerId, "notes/result.txt", spaceHeaders)).resolves.toContain(
     personalMarker,
   );
+  await expect(
+    readFileResponse(page, chiefId, "notes/result.txt", spaceHeaders),
+  ).resolves.toMatchObject({ ok: false });
+  await expect(
+    readFile(page, chiefId, `bots/${writerId}/notes/result.txt`, spaceHeaders),
+  ).resolves.toContain(personalMarker);
   await captureScreenshot(page, testInfo, "42-team-bot-home-folder");
 
   await sendAndWait(
     page,
     writerId,
     `write a file called shared/notes/result.txt that says ${sharedMarker}`,
+    spaceHeaders,
   );
-  await expect(readFile(page, chiefId, "shared/notes/result.txt")).resolves.toContain(sharedMarker);
+  await expect(readFile(page, chiefId, "shared/notes/result.txt", spaceHeaders)).resolves.toContain(
+    sharedMarker,
+  );
 
-  const privateId = await createBot(page, "Private Writer", "dedicated");
+  const privateId = await createBot(page, "Private Writer", "dedicated", spaceHeaders);
   await openComputerPanel(page);
   await expect(page.getByText(/Private Writer['’]s screen/).last()).toBeVisible();
   await captureScreenshot(page, testInfo, "43-private-computer");
-  await expect(readFileResponse(page, privateId, "notes/result.txt")).resolves.toMatchObject({
-    ok: false,
-  });
+  await expect(
+    readFileResponse(page, privateId, "notes/result.txt", spaceHeaders),
+  ).resolves.toMatchObject({ ok: false });
 
   await sendAndWait(
     page,
     privateId,
     `write a file in your home called notes/result.txt that says ${privateMarker}`,
+    spaceHeaders,
   );
-  await expect(readFile(page, privateId, "notes/result.txt")).resolves.toContain(privateMarker);
-  await expect(readFileResponse(page, chiefId, "notes/result.txt")).resolves.toMatchObject({
-    ok: false,
-  });
+  await expect(readFile(page, privateId, "notes/result.txt", spaceHeaders)).resolves.toContain(
+    privateMarker,
+  );
+  await expect(
+    readFileResponse(page, chiefId, "notes/result.txt", spaceHeaders),
+  ).resolves.toMatchObject({ ok: false });
 
-  await setComputerMode(page, "Private Writer", privateId, "team");
-  await expect(readFileResponse(page, privateId, "notes/result.txt")).resolves.toMatchObject({
-    ok: false,
-  });
-  await expect(readFile(page, privateId, "shared/notes/result.txt")).resolves.toContain(
-    sharedMarker,
-  );
+  await setComputerMode(page, "Private Writer", privateId, "team", spaceHeaders);
+  await expect(
+    readFileResponse(page, privateId, "notes/result.txt", spaceHeaders),
+  ).resolves.toMatchObject({ ok: false });
+  await expect(
+    readFile(page, privateId, "shared/notes/result.txt", spaceHeaders),
+  ).resolves.toContain(sharedMarker);
   await captureScreenshot(page, testInfo, "44-private-bot-joined-team-computer");
 
-  await setComputerMode(page, "Private Writer", privateId, "dedicated");
-  await expect(readFile(page, privateId, "notes/result.txt")).resolves.toContain(privateMarker);
-  await expect(readFile(page, writerId, "notes/result.txt")).resolves.toContain(personalMarker);
+  await setComputerMode(page, "Private Writer", privateId, "dedicated", spaceHeaders);
+  await expect(readFile(page, privateId, "notes/result.txt", spaceHeaders)).resolves.toContain(
+    privateMarker,
+  );
+  await expect(readFile(page, writerId, "notes/result.txt", spaceHeaders)).resolves.toContain(
+    personalMarker,
+  );
   await captureScreenshot(page, testInfo, "45-private-computer-restored");
 });
 
@@ -89,10 +106,12 @@ test("user control leaves another Team bot's screen available", async ({ page },
   const stamp = Date.now();
   const marker = `after-release-${stamp}`;
 
+  const spaceId = await createIsolatedSpace(page, `Team control ${stamp}`);
+  const spaceHeaders = { "x-rakazo-space-id": spaceId };
   await signup(page, `team-control-${stamp}@rakazo.test`, "password12", "Team Control");
   await completeOnboarding(page);
   const chiefId = activeBotId(page);
-  const workerId = await createBot(page, "Worker", "team");
+  const workerId = await createBot(page, "Worker", "team", spaceHeaders);
 
   await openBot(page, "Chief", chiefId);
   await page.getByRole("button", { name: "Agent computer", exact: true }).click();
@@ -112,31 +131,42 @@ test("user control leaves another Team bot's screen available", async ({ page },
     `write a file in your home called notes/result.txt that says ${marker}`,
   );
 
-  await waitForRun(page, workerId, workerRunId);
+  await waitForRun(page, workerId, workerRunId, spaceHeaders);
   await expect(
-    rpc<{ controlHolder: string; controlBotId: string | null }>(page, "computer/status", {
-      botId: workerId,
-    }),
+    rpc<{ controlHolder: string; controlBotId: string | null }>(
+      page,
+      "computer/status",
+      { botId: workerId },
+      spaceHeaders,
+    ),
   ).resolves.toMatchObject({ controlHolder: "user", controlBotId: chiefId });
-  await expect(readFile(page, workerId, "notes/result.txt")).resolves.toContain(marker);
+  await expect(readFile(page, workerId, "notes/result.txt", spaceHeaders)).resolves.toContain(
+    marker,
+  );
   await captureScreenshot(page, testInfo, "46-team-computer-user-control-allows-parallel-bot");
 
-  await rpc(page, "computer/release", { botId: chiefId });
+  await rpc(page, "computer/release", { botId: chiefId }, spaceHeaders);
   await expect(
-    rpc<{ controlHolder: string; controlBotId: string | null }>(page, "computer/status", {
-      botId: chiefId,
-    }),
+    rpc<{ controlHolder: string; controlBotId: string | null }>(
+      page,
+      "computer/status",
+      { botId: chiefId },
+      spaceHeaders,
+    ),
   ).resolves.toMatchObject({ controlHolder: "bot", controlBotId: null });
 
-  await expect(readFileResponse(page, chiefId, "notes/result.txt")).resolves.toMatchObject({
-    ok: false,
-  });
+  await expect(
+    readFileResponse(page, chiefId, "notes/result.txt", spaceHeaders),
+  ).resolves.toMatchObject({ ok: false });
   await captureScreenshot(page, testInfo, "47-team-computer-control-released");
 });
 
 test("opening and releasing the computer keep a view-only stream; a failed release can be retried", async ({
   page,
 }, testInfo) => {
+  // Own Space: a concurrent spec's active run on the shared Chief's team
+  // computer refuses this test's takeover until that run stops.
+  await createIsolatedSpace(page, `View only ${Date.now()}`);
   await signup(page, `view-only-${Date.now()}@rakazo.test`, "password12", "Computer");
   await completeOnboarding(page);
   let takeovers = 0;
@@ -201,6 +231,8 @@ test("opening and releasing the computer keep a view-only stream; a failed relea
 test("an active Team bot must be stopped before user takeover", async ({ page }, testInfo) => {
   const stamp = Date.now();
 
+  const spaceId = await createIsolatedSpace(page, `Active team ${stamp}`);
+  const spaceHeaders = { "x-rakazo-space-id": spaceId };
   await signup(
     page,
     `active-team-control-${stamp}@rakazo.test`,
@@ -212,30 +244,35 @@ test("an active Team bot must be stopped before user takeover", async ({ page },
 
   await sendMessage(page, "keep working until I stop you");
   await expect
-    .poll(async () => (await threadSnapshot(page, chiefId)).run?.status ?? "idle")
+    .poll(async () => (await threadSnapshot(page, chiefId, spaceHeaders)).run?.status ?? "idle")
     .toBe("running");
   await captureScreenshot(page, testInfo, "48-active-team-bot-blocks-takeover");
   await expect
     .poll(
-      async () => (await rpc<{ state: string }>(page, "computer/status", { botId: chiefId })).state,
+      async () =>
+        (await rpc<{ state: string }>(page, "computer/status", { botId: chiefId }, spaceHeaders))
+          .state,
     )
     .toBe("running");
   await expect
     .poll(
       async () =>
         (
-          await rpc<{ busyBotName: string | null }>(page, "computer/status", {
-            botId: chiefId,
-          })
+          await rpc<{ busyBotName: string | null }>(
+            page,
+            "computer/status",
+            { botId: chiefId },
+            spaceHeaders,
+          )
         ).busyBotName,
     )
     .not.toBeNull();
 
-  const takeover = await rpcResponse(page, "computer/takeover", { botId: chiefId });
+  const takeover = await rpcResponse(page, "computer/takeover", { botId: chiefId }, spaceHeaders);
   expect(takeover.ok).toBe(false);
   expect(takeover.status).toBe(409);
   await expect
-    .poll(async () => (await threadSnapshot(page, chiefId)).run?.status ?? "idle")
+    .poll(async () => (await threadSnapshot(page, chiefId, spaceHeaders)).run?.status ?? "idle")
     .toBe("running");
 
   await page.getByRole("button", { name: "Agent computer", exact: true }).click();
@@ -257,14 +294,17 @@ test("an active Team bot must be stopped before user takeover", async ({ page },
   // Stop through the shell so the client refreshes computer status (API stop alone
   // does not emit a terminal thread event).
   await page.getByRole("button", { name: "Stop", exact: true }).click();
-  await waitForIdle(page, chiefId);
+  await waitForIdle(page, chiefId, spaceHeaders);
   await expect
     .poll(
       async () =>
         (
-          await rpc<{ busyBotName: string | null }>(page, "computer/status", {
-            botId: chiefId,
-          })
+          await rpc<{ busyBotName: string | null }>(
+            page,
+            "computer/status",
+            { botId: chiefId },
+            spaceHeaders,
+          )
         ).busyBotName,
     )
     .toBeNull();
@@ -283,8 +323,13 @@ test("an active Team bot must be stopped before user takeover", async ({ page },
   await expect(page.getByRole("button", { name: "Close computer" })).toBeVisible();
 });
 
-async function createBot(page: Page, name: string, mode: "team" | "dedicated") {
-  return createNamedBot(page, name, { computerMode: mode });
+async function createBot(
+  page: Page,
+  name: string,
+  mode: "team" | "dedicated",
+  headers?: Record<string, string>,
+) {
+  return createNamedBot(page, name, { computerMode: mode, headers });
 }
 
 async function setComputerMode(
@@ -292,6 +337,7 @@ async function setComputerMode(
   botName: string,
   botId: string,
   mode: "team" | "dedicated",
+  headers?: Record<string, string>,
 ) {
   await page.getByRole("button", { name: botName, exact: true }).last().click();
   const settings = page.getByTestId("bot-settings");
@@ -306,7 +352,12 @@ async function setComputerMode(
   await settings.getByRole("button", { name: "Save", exact: true }).click();
   await expect
     .poll(async () => {
-      const bots = await rpc<Array<{ id: string; computerMode: string }>>(page, "bots/list", {});
+      const bots = await rpc<Array<{ id: string; computerMode: string }>>(
+        page,
+        "bots/list",
+        {},
+        headers,
+      );
       return bots.find((bot) => bot.id === botId)?.computerMode;
     })
     .toBe(mode);
@@ -327,9 +378,14 @@ async function openComputerPanel(page: Page) {
   await expect(page.getByTestId("computer-preview-open")).toHaveCount(1);
 }
 
-async function sendAndWait(page: Page, botId: string, text: string) {
+async function sendAndWait(
+  page: Page,
+  botId: string,
+  text: string,
+  headers?: Record<string, string>,
+) {
   const runId = await sendMessage(page, text);
-  await waitForRun(page, botId, runId);
+  await waitForRun(page, botId, runId, headers);
 }
 
 async function sendMessage(page: Page, text: string) {
@@ -347,11 +403,16 @@ async function sendMessage(page: Page, text: string) {
   return result.json.runId;
 }
 
-async function waitForRun(page: Page, botId: string, runId: string) {
+async function waitForRun(
+  page: Page,
+  botId: string,
+  runId: string,
+  headers?: Record<string, string>,
+) {
   await expect
     .poll(
       async () => {
-        const snapshot = await threadSnapshot(page, botId);
+        const snapshot = await threadSnapshot(page, botId, headers);
         if (snapshot.run?.id === runId) return false;
         return snapshot.messages.some((message) => message.runId === runId);
       },
@@ -363,31 +424,49 @@ async function waitForRun(page: Page, botId: string, runId: string) {
     .toBe(true);
 }
 
-async function waitForIdle(page: Page, botId: string) {
+async function waitForIdle(page: Page, botId: string, headers?: Record<string, string>) {
   await expect
-    .poll(async () => (await threadSnapshot(page, botId)).run?.status ?? "idle", {
+    .poll(async () => (await threadSnapshot(page, botId, headers)).run?.status ?? "idle", {
       timeout: realSandboxTimeout(90_000, 20_000),
     })
     .toBe("idle");
 }
 
-function threadSnapshot(page: Page, botId: string) {
+function threadSnapshot(page: Page, botId: string, headers?: Record<string, string>) {
   return rpc<{
     run: { id: string; status: string } | null;
     messages: Array<{ runId?: string | null }>;
-  }>(page, "threads/get", { botId });
+  }>(page, "threads/get", { botId }, headers);
 }
 
-async function readFile(page: Page, botId: string, path: string) {
-  const result = await rpc<{ content: string }>(page, "computer/readFile", { botId, path });
+async function readFile(page: Page, botId: string, path: string, headers?: Record<string, string>) {
+  const result = await rpc<{ content: string }>(
+    page,
+    "computer/readFile",
+    { botId, path },
+    headers,
+  );
   return result.content;
 }
 
-async function readFileResponse(page: Page, botId: string, path: string) {
-  return rpcResponse(page, "computer/readFile", { botId, path });
+async function readFileResponse(
+  page: Page,
+  botId: string,
+  path: string,
+  headers?: Record<string, string>,
+) {
+  return rpcResponse(page, "computer/readFile", { botId, path }, headers);
 }
 
-async function rpcResponse(page: Page, procedure: string, body: unknown) {
-  const response = await page.request.post(`/rpc/${procedure}`, { data: { json: body } });
+async function rpcResponse(
+  page: Page,
+  procedure: string,
+  body: unknown,
+  headers?: Record<string, string>,
+) {
+  const response = await page.request.post(`/rpc/${procedure}`, {
+    data: { json: body },
+    headers,
+  });
   return { ok: response.ok(), status: response.status() };
 }

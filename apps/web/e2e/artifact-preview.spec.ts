@@ -1,10 +1,19 @@
 import { expect, test } from "@playwright/test";
-import { captureScreenshot, completeOnboarding, signup } from "./helpers";
+import {
+  captureScreenshot,
+  completeOnboarding,
+  createIsolatedSpace,
+  disposeIsolatedSpace,
+  signup,
+} from "./helpers";
 
 test("agent-attached files appear as cards with previews and downloads", async ({
   page,
 }, testInfo) => {
   const stamp = Date.now();
+  // Own Space: three scripted sends must not join or supersede a concurrent
+  // spec's run on the shared Chief, or the artifact cards never arrive here.
+  const spaceId = await createIsolatedSpace(page, `Artifact preview ${stamp}`);
   await signup(page, `artifact-card-${stamp}@rakazo.test`, "password12", "Artifact Card");
   await completeOnboarding(page);
 
@@ -90,4 +99,5 @@ test("agent-attached files appear as cards with previews and downloads", async (
   // The preview's opaque origin keeps it away from the app's storage and DOM.
   expect(await preview.locator("body").evaluate(() => window.origin)).toBe("null");
   await captureScreenshot(page, testInfo, "html-preview-open");
+  await disposeIsolatedSpace(page, spaceId);
 });

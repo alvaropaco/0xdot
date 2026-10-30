@@ -1,8 +1,17 @@
 import { expect, test } from "@playwright/test";
-import { captureScreenshot, completeOnboarding, expectCardWidth, signup } from "./helpers";
+import {
+  captureScreenshot,
+  completeOnboarding,
+  createIsolatedSpace,
+  expectCardWidth,
+  signup,
+} from "./helpers";
 
 test("teach a task records interaction and saves a draft", async ({ page }, testInfo) => {
   const stamp = Date.now();
+  // Own Space: team-computer.spec drives the shared Chief's computer from its
+  // own worker, and this test's Take control loses the lease race against it.
+  await createIsolatedSpace(page, `Teach task ${stamp}`);
   await signup(page, `teach-${stamp}@rakazo.test`, "password12", "Teach");
   await completeOnboarding(page);
 

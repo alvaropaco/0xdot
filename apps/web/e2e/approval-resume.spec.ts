@@ -1,10 +1,20 @@
 import { expect, test } from "@playwright/test";
-import { captureScreenshot, completeOnboarding, signup } from "./helpers";
+import {
+  captureScreenshot,
+  completeOnboarding,
+  createIsolatedSpace,
+  disposeIsolatedSpace,
+  signup,
+} from "./helpers";
 
 test.describe.configure({ mode: "serial" });
 
 test("approval input resumes durable work", async ({ page }, testInfo) => {
   const stamp = Date.now();
+  // Own Space: this durable ask sits on Chief's thread for minutes. A
+  // concurrent spec's message on the shared Chief joins or supersedes the run
+  // mid-answer, and the approval card never reaches Send answer.
+  const spaceId = await createIsolatedSpace(page, `Approval resume ${stamp}`);
   await signup(page, `approval-${stamp}@rakazo.test`, "password12", "Approval");
   await completeOnboarding(page);
 
@@ -56,8 +66,10 @@ test("approval input resumes durable work", async ({ page }, testInfo) => {
   await composer.fill("ask me which city to use");
   await page.keyboard.press("Enter");
   await expect(prompt).toHaveCount(3, { timeout: 30_000 });
-  await page.getByRole("button", { name: "Stop" }).click();
+  // Exact: a sidebar row preview ("...until I stop you") substring-matches "Stop".
+  await page.getByRole("button", { name: "Stop", exact: true }).click();
   await expect(page.getByText("No longer active", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Send it" })).toHaveCount(0);
   await captureScreenshot(page, testInfo, "25-stopped-approval-prompt");
+  await disposeIsolatedSpace(page, spaceId);
 });

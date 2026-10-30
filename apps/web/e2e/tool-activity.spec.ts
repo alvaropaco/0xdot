@@ -1,6 +1,12 @@
 import type { Page } from "@playwright/test";
 import { expect, test } from "@playwright/test";
-import { captureScreenshot, completeOnboarding, openUserSettings, signup } from "./helpers";
+import {
+  captureScreenshot,
+  completeOnboarding,
+  createIsolatedSpace,
+  openUserSettings,
+  signup,
+} from "./helpers";
 
 const fixture = "/e2e/fixtures/tool-activity.html";
 const REPLY_TEXT = "Tuesday at 2 pm is free.";
@@ -141,6 +147,9 @@ test("the chat transcript shows tool activity when turned on and hides it when t
   await page.setViewportSize({ width: 1440, height: 900 });
   await seedToolActivityOn(page);
   const stamp = Date.now();
+  // Own Space: a concurrent spec's message on the shared Chief supersedes or
+  // joins this run, and the scripted reply never lands in this transcript.
+  await createIsolatedSpace(page, `Tool activity ${stamp}`);
   await signup(page, `tool-activity-${stamp}@rakazo.test`, "password12", "Tool Activity");
   await completeOnboarding(page);
 

@@ -16,39 +16,25 @@ test("account settings language picker includes Hebrew and mirrors the UI right-
   await expect(page.getByRole("option", { name: "日本語", exact: true })).toBeVisible();
   await captureScreenshot(page, testInfo, "ui-locale-picker-he");
 
-  // The locale is user-scoped: a concurrent spec's language switch can stomp
-  // this one, so re-select Hebrew until it sticks.
-  const switchToHebrew = async () => {
-    await picker.click();
-    // עברית sits at the clipped bottom edge of the open list, where a pointer
-    // click lands on the scroll affordance instead of the item; deliver the
-    // selection through the item itself once it is highlighted.
-    const hebrew = page.getByRole("option", { name: "עברית", exact: true });
-    await hebrew.hover();
-    await hebrew.dispatchEvent("click");
-  };
-  await expect(async () => {
-    const lang = await page.locator("html").getAttribute("lang");
-    const pickerText = (await picker.textContent())?.trim();
-    console.log(`DBG retry lang=${lang} picker=${pickerText}`);
-    if (lang !== "he") await switchToHebrew();
-    await expect(settings.getByRole("heading", { name: "כללי", exact: true })).toBeVisible({
-      timeout: 5_000,
-    });
-  }).toPass({ timeout: 60_000 });
+  // עברית sits at the bottom of the long list. Scroll it into view first so the
+  // pointer lands on the item, not the list's clipped edge, and let the click
+  // retry if the popup is still settling.
+  const hebrew = page.getByRole("option", { name: "עברית", exact: true });
+  await hebrew.scrollIntoViewIfNeeded();
+  await hebrew.click();
+  await expect(settings.getByRole("heading", { name: "כללי", exact: true })).toBeVisible();
   await expect(settings.getByRole("heading", { name: "מראה", exact: true })).toBeVisible();
   await expect(settings.getByRole("heading", { name: "שפה", exact: true })).toBeVisible();
   await expect(picker).toHaveText("עברית");
   await expect(page.locator("html")).toHaveAttribute("lang", "he");
   await expect(page.locator("html")).toHaveAttribute("dir", "rtl");
   await captureScreenshot(page, testInfo, "ui-locale-settings-he");
+
+  // The locale lives in this context's localStorage, so it survives reloads and
+  // no other spec's browser can change it.
   await page.reload();
-  await expect
-    .poll(() => page.locator("html").getAttribute("lang"), { timeout: 30_000 })
-    .toBe("he");
-  // A concurrent stomp can revert the saved locale before the reload.
-  if ((await page.locator("html").getAttribute("dir")) !== "rtl") await switchToHebrew();
-  await expect(page.locator("html")).toHaveAttribute("dir", "rtl");
+  await expect(page.locator("html")).toHaveAttribute("lang", "he", { timeout: 30_000 });
+  await expect(page.locator("html")).toHaveAttribute("dir", "rtl", { timeout: 30_000 });
 
   await page.goto("/app");
   await page.waitForURL(/\/app\/[^/]+$/);
@@ -57,12 +43,4 @@ test("account settings language picker includes Hebrew and mirrors the UI right-
   const box = await sidebar.boundingBox();
   expect((box?.x ?? 0) + (box?.width ?? 0)).toBeCloseTo(page.viewportSize()?.width ?? 0, 0);
   await captureScreenshot(page, testInfo, "ui-locale-app-he");
-
-  // The locale is user-scoped and shared by the whole shard; switch back so
-  // specs running concurrently keep their English selectors.
-  await openUserSettings(page);
-  const restore = page.getByTestId("ui-locale-select");
-  await restore.click();
-  await page.getByRole("option", { name: "English", exact: true }).click();
-  await expect(page.locator("html")).toHaveAttribute("lang", "en");
 });

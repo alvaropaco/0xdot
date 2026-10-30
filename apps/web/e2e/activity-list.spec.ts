@@ -1,6 +1,12 @@
 import type { Page } from "@playwright/test";
 import { expect, test } from "@playwright/test";
-import { captureScreenshot, completeOnboarding, signup } from "./helpers";
+import {
+  captureScreenshot,
+  completeOnboarding,
+  createIsolatedSpace,
+  disposeIsolatedSpace,
+  signup,
+} from "./helpers";
 
 /** Activity rows sit above `[data-sidebar-group]` bots; match their aria-label. */
 function activityRow(page: Page, botName: string) {
@@ -40,6 +46,9 @@ async function captureActivitySidebar(
 
 test("sidebar Now and Recent surface active and terminal runs", async ({ page }, testInfo) => {
   const stamp = Date.now();
+  // Own Space: the keep-working run holds Chief's thread for most of the test;
+  // on the shared Chief it would absorb concurrent specs' sends.
+  const spaceId = await createIsolatedSpace(page, `Activity list ${stamp}`);
   await signup(page, `activity-${stamp}@rakazo.test`, "password12", "Activity");
   await completeOnboarding(page);
 
@@ -175,6 +184,7 @@ test("sidebar Now and Recent surface active and terminal runs", async ({ page },
   await page.getByTestId("activity-date-to").fill("2000-01-01");
   await expect(aside.getByText("No runs match these filters.")).toBeVisible();
   await expect(activityRow(page, "Chief")).toHaveCount(0);
+  await disposeIsolatedSpace(page, spaceId);
 });
 
 test("activity filters keep retry when a refresh fails", async ({ page }) => {
