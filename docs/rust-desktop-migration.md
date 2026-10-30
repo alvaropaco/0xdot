@@ -79,19 +79,31 @@ Cross-cutting rules:
 Out of scope by decision: any multi-tenant/server concepts (already removed:
 accounts, billing); mobile push; hosted providers.
 
-## Key decisions to lock before M1
+## Decisions (locked 2026-10-29)
 
-1. **IPC contract:** tauri-specta (TS types generated from Rust) vs a JSON-RPC
-   shim that keeps the existing oRPC client shape. Recommendation: tauri-specta
-   + a thin `rpc` adapter in the web app so components keep calling
-   `rpc.bots.create(...)`-style APIs while transport swaps.
-2. **Streaming:** oRPC event iterators → Tauri channels/events; the UI's
-   thread-events reducer already consumes discrete events, so this maps
-   cleanly.
-3. **Store:** sqlx + checked-in SQL migrations; no ORM. Document-level
-   columns (thread blocks, memory docs) stay JSONB-shaped (SQLite JSON).
-4. **Where `apps/web` goes:** it remains the UI; the Electron app
+1. **IPC contract:** tauri-specta with generated TS bindings; the web keeps an
+   `rpc`-shaped adapter so components keep calling `rpc.bots.create(...)`-style
+   APIs while the transport swaps. (M1 work.)
+2. **Store:** sqlx + checked-in SQL migrations, JSON columns where Postgres had
+   JSONB; no ORM.
+3. **Streaming:** oRPC event iterators → Tauri channels/events; the UI's
+   thread-events reducer already consumes discrete events.
+4. **TS freeze:** from M1 sign-off, `apps/api`/`apps/web` take bug fixes only.
+5. **Where `apps/web` goes:** it remains the UI; the Electron app
    (`apps/desktop`) becomes redundant once parity ships and is archived.
+
+## Status
+
+- **M0 — done (2026-10-29).** The Tauri shell no longer defaults to a remote
+  origin (the old default pointed at the upstream `app.rakazo.com` cloud — the
+  fork must never depend on it). With no saved `server.txt` the window keeps
+  the bundled assets, the web detects the Tauri runtime page and renders the
+  `LocalRuntimeGate`, and the embedded runtime answers `runtime_health`
+  (mode/version/`rpcReady`). Saving an origin keeps the previous remote mode as
+  an explicit opt-in; `local` clears it.
+- **M1 — next:** the vertical chat slice. SQLite store, streaming via Tauri
+  channels/events, tauri-specta bindings, tool loop (remember + workspace
+  files), BYOK OpenAI-compatible connection.
 
 ## Risks
 

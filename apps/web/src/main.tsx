@@ -6,12 +6,14 @@ import { BrowserRouter, useLocation } from "react-router-dom";
 import { App } from "./App";
 import { DesktopUpdatesProvider } from "./components/DesktopUpdates";
 import { I18nBootstrap } from "./components/I18nBootstrap";
+import { LocalRuntimeGate } from "./components/LocalRuntimeGate";
 import { applyUiDirection } from "./lib/apply-ui-direction";
 import { clientUpdates } from "./lib/client-update";
 import { reportCaughtReactError } from "./lib/monitoring";
 import { markAfterPaint, markOnce } from "./lib/performance";
 import { installPreloadRecovery } from "./lib/preload-recovery";
 import { installTauriDesktopBridge } from "./lib/tauri-desktop";
+import { isTauriRuntimePage } from "./lib/tauri-runtime";
 import { applyUiAppearance, watchSystemAppearance } from "./lib/ui-appearance";
 import { resolveUiLocale } from "./lib/ui-locale";
 import { registerServiceWorker } from "./pwa/register";
@@ -52,23 +54,29 @@ function AppearanceSync() {
 
 createRoot(document.getElementById("root")!, { onCaughtError: reportCaughtReactError }).render(
   <StrictMode>
-    <PerformanceProbe />
-    <AppearanceSync />
-    <I18nBootstrap>
-      {/* Router state updates must not be transitions: under sustained urgent
-          updates (SSE churn while a run streams) a pending navigation is
-          preempted indefinitely — useSearchParams/useParams then keep serving
-          the stale location, so deep links (?m=) and thread switches never
-          land while the URL already moved. */}
-      <BrowserRouter useTransitions={false}>
-        <ClientUpdateOnNavigate />
-        <DesktopUpdatesProvider>
-          <TooltipProvider>
-            <App />
-          </TooltipProvider>
-          <Toaster />
-        </DesktopUpdatesProvider>
-      </BrowserRouter>
-    </I18nBootstrap>
+    {isTauriRuntimePage() ? (
+      <LocalRuntimeGate />
+    ) : (
+      <>
+        <PerformanceProbe />
+        <AppearanceSync />
+        <I18nBootstrap>
+          {/* Router state updates must not be transitions: under sustained urgent
+              updates (SSE churn while a run streams) a pending navigation is
+              preempted indefinitely — useSearchParams/useParams then keep serving
+              the stale location, so deep links (?m=) and thread switches never
+              land while the URL already moved. */}
+          <BrowserRouter useTransitions={false}>
+            <ClientUpdateOnNavigate />
+            <DesktopUpdatesProvider>
+              <TooltipProvider>
+                <App />
+              </TooltipProvider>
+              <Toaster />
+            </DesktopUpdatesProvider>
+          </BrowserRouter>
+        </I18nBootstrap>
+      </>
+    )}
   </StrictMode>,
 );

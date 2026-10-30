@@ -1,12 +1,12 @@
-//! The renderer is the server-hosted 0xdot web application, so the shell must
-//! point the webview at a working http(s) origin. Until the local-first runtime
-//! exposes a web API, the embedded dist is only a pre-navigation splash, and
-//! the origin is resolved from a persisted override falling back to the cloud.
+//! The desktop runtime is local-first: with no saved origin the window keeps
+//! the bundled assets and the embedded Rust runtime answers. A saved origin is
+//! an explicit opt-in to remote mode — the webview then navigates to someone
+//! else's 0xdot server. `local` (or empty) clears the override.
 
 use std::{fs, path::PathBuf};
 use tauri::Manager;
 
-pub const DEFAULT_SERVER_ORIGIN: &str = "https://app.rakazo.com";
+pub const LOCAL_MODE: &str = "local";
 
 fn server_file(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     let dir = app
@@ -16,18 +16,15 @@ fn server_file(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(dir.join("server.txt"))
 }
 
-pub fn server_origin(app: &tauri::AppHandle) -> String {
-    let Ok(path) = server_file(app) else {
-        return DEFAULT_SERVER_ORIGIN.into();
-    };
-    let Ok(saved) = fs::read_to_string(path) else {
-        return DEFAULT_SERVER_ORIGIN.into();
-    };
+/// The saved remote origin, or None when the app runs on its local runtime.
+pub fn server_origin(app: &tauri::AppHandle) -> Option<String> {
+    let path = server_file(app).ok()?;
+    let saved = fs::read_to_string(path).ok()?;
     let trimmed = saved.trim();
     if acceptable(trimmed) {
-        trimmed.to_string()
+        Some(trimmed.to_string())
     } else {
-        DEFAULT_SERVER_ORIGIN.into()
+        None
     }
 }
 
@@ -39,19 +36,24 @@ fn acceptable(origin: &str) -> bool {
 }
 
 #[tauri::command]
-pub fn server_get(app: tauri::AppHandle) -> String {
+pub fn server_get(app: tauri::AppHandle) -> Option<String> {
     server_origin(&app)
 }
 
 #[tauri::command]
-pub fn server_set(app: tauri::AppHandle, origin: String) -> Result<(), String> {
+pub fn server_set(app: tauri::AppHandle, origin: String) -> Result<Option<String>, String> {
     let trimmed = origin.trim();
+    let path = server_file(&app)?;
+    if trimmed.is_empty() || trimmed == LOCAL_MODE {
+        let _ = fs::remove_file(&path);
+        return Ok(None);
+    }
     if !acceptable(trimmed) {
         return Err("Only absolute http and https URLs are accepted".into());
     }
-    let path = server_file(&app)?;
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
-    fs::write(path, trimmed).map_err(|e| e.to_string())
+    fs::write(&path, trimmed).map_err(|e| e.to_string())?;
+    Ok(Some(trimmed.to_string()))
 }
